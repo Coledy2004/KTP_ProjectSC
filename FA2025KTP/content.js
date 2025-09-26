@@ -9,9 +9,14 @@ console.log('KTP content script loaded on', location.href);
 //  }
 //});
 
+
 function getTitle() {
   const title = document.querySelector('.video-title h4, .ellipsize-text');
   if (title) {
     console.log("Now watching:", title.innerText);
+  }else{
+    console.log("Title not found");
   }
 }
+
+setInterval(getTitle, 5000);
