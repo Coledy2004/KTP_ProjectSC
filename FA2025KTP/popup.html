@@ -3,18 +3,86 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>KTP Starter</title>
+  <title>KTP — Netflix Tools</title>
   <style>
-    body { font-family: Arial, sans-serif; width: 300px; padding: 12px; }
-    button { padding: 8px 12px; margin-top: 8px; }
-    #status { margin-top: 8px; color: #333; }
+    :root{
+      --bg:#141414; /* Netflix dark */
+      --accent:#e50914; /* Netflix red */
+      --muted:#b3b3b3;
+      --card:#1f1f1f;
+    }
+    html,body{margin:0;padding:0;font-family:Inter, Arial, sans-serif;background:var(--bg);color:#fff;width:380px}
+    .header{display:flex;align-items:center;gap:10px;padding:14px}
+    .logo{font-weight:800;color:var(--accent);font-size:20px}
+    .subtitle{color:var(--muted);font-size:12px}
+    .content{padding:12px;display:grid;grid-template-columns:1fr;gap:10px}
+    .card{background:var(--card);padding:10px;border-radius:8px}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    button, .btn{background:var(--accent);color:#fff;border:none;padding:8px 10px;border-radius:6px;cursor:pointer}
+    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.08)}
+    input[type="text"], textarea{width:100%;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:#0f0f0f;color:#fff}
+    label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+    .title{font-weight:700;font-size:14px}
+    .muted{color:var(--muted);font-size:12px}
+    .small{font-size:12px}
+    .footer{padding:12px;text-align:center;color:var(--muted);font-size:12px}
   </style>
 </head>
 <body>
-  <h3>KTP Starter</h3>
-  <p>A minimal popup to test extension wiring.</p>
-  <button id="ping">Ping background</button>
-  <div id="status">Idle</div>
+  <div class="header">
+    <div class="logo">KTP</div>
+    <div>
+      <div class="title">Netflix Tools</div>
+      <div class="subtitle">Quick actions while watching</div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="card" id="now-watching">
+      <div class="small muted">Now watching</div>
+      <div class="title" id="movie-title">—</div>
+      <div class="muted" id="movie-episode" style="margin-top:6px">Not detected</div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="align-items:center">
+        <div>
+          <div class="small muted">Playback controls</div>
+          <div class="muted small">Send simple commands to the page</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button id="btn-play">Play</button>
+          <button id="btn-pause" class="secondary">Pause</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="small muted">Subtitles / Audio</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="btn-sub-toggle" class="secondary">Toggle Subtitles</button>
+        <button id="btn-sub-next" class="secondary">Next Subtitle</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <label for="note">Quick note</label>
+      <textarea id="note" rows="3" placeholder="Jot a note about this scene..."></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end">
+        <button id="save-note">Save</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="small muted">Advanced</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <button id="inspect-frames" class="secondary">Inspect Frames</button>
+        <button id="open-settings" class="secondary">Open Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">KTP • Netflix Tools — prototype</div>
 
   <script src="popup.js"></script>
 </body>

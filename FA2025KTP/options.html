@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>KTP Settings</title>
+  <style>
+    body{font-family:Inter, Arial;background:#141414;color:#fff;padding:20px}
+    h1{color:#e50914}
+    label{display:block;margin-top:12px;color:#b3b3b3}
+    input,select{width:100%;padding:8px;border-radius:6px;margin-top:6px;background:#0f0f0f;border:1px solid rgba(255,255,255,0.06);color:#fff}
+    button{background:#e50914;color:#fff;padding:8px 12px;border-radius:6px;border:none;margin-top:12px}
+  </style>
+</head>
+<body>
+  <h1>KTP Settings</h1>
+  <p class="muted">Basic settings for the KTP Netflix Tools extension.</p>
+  <label for="autoMonitor">Auto-start monitoring on watch pages</label>
+  <select id="autoMonitor">
+    <option value="true">Enabled</option>
+    <option value="false">Disabled</option>
+  </select>
+
+  <label for="pollInterval">Title poll interval (ms)</label>
+  <input id="pollInterval" type="number" value="3000" />
+
+  <div>
+    <button id="save">Save</button>
+  </div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    // load
+    chrome.storage.local.get(['autoMonitor','pollInterval'], (res)=>{
+      if(res.autoMonitor!==undefined) $('autoMonitor').value = String(res.autoMonitor);
+      if(res.pollInterval) $('pollInterval').value = res.pollInterval;
+    });
+    $('save').addEventListener('click', ()=>{
+      const obj = {autoMonitor: $('autoMonitor').value==='true', pollInterval: Number($('pollInterval').value||3000)};
+      chrome.storage.local.set(obj, ()=>{
+        alert('Settings saved');
+      });
+    });
+  </script>
+</body>
+</html>

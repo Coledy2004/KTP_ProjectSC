@@ -271,3 +271,66 @@ window.addEventListener('beforeunload', () => {
     observer.disconnect();
   }
 });
+function findVideo() {
+  // Netflix uses <video> elements for playback; attempt to find the main one
+  const v = document.querySelector('video');
+  return v || null;
+}
+
+function readNowWatching() {
+  const titleEl = document.querySelector('.video-title h4, .ellipsize-text');
+  const episodeEl = document.querySelector('.previewModal--player-titleTreatment-v2 h4, .player-title .ellipsize-text, .episode-title');
+  return {
+    title: titleEl ? titleEl.innerText.trim() : null,
+    episode: episodeEl ? episodeEl.innerText.trim() : null
+  };
+}
+
+function toggleSubtitles() {
+  // naive toggle: toggle track modes
+  const v = findVideo();
+  if (!v) return false;
+  if (v.textTracks && v.textTracks.length) {
+    for (let i=0;i<v.textTracks.length;i++) {
+      v.textTracks[i].mode = v.textTracks[i].mode === 'showing' ? 'hidden' : 'showing';
+    }
+    return true;
+  }
+  return false;
+}
+
+function nextSubtitle() {
+  const v = findVideo();
+  if (!v || !v.textTracks) return false;
+  const tracks = v.textTracks;
+  let enabled = -1;
+  for (let i=0;i<tracks.length;i++) if (tracks[i].mode === 'showing') enabled = i;
+  const next = (enabled + 1) % tracks.length;
+  for (let i=0;i<tracks.length;i++) tracks[i].mode = 'hidden';
+  tracks[next].mode = 'showing';
+  return true;
+}
+
+function inspectFrames() {
+  // show how many iframes on the page
+  const frames = document.querySelectorAll('iframe');
+  console.log('KTP: found', frames.length, 'iframes');
+  return {count: frames.length};
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || !msg.type) return;
+  if (msg.type === 'get-now-watching') {
+    sendResponse(readNowWatching());
+  } else if (msg.type === 'play') {
+    const v = findVideo(); if (v) v.play(); sendResponse({ok: !!v});
+  } else if (msg.type === 'pause') {
+    const v = findVideo(); if (v) v.pause(); sendResponse({ok: !!v});
+  } else if (msg.type === 'sub-toggle') {
+    const ok = toggleSubtitles(); sendResponse({ok});
+  } else if (msg.type === 'sub-next') {
+    const ok = nextSubtitle(); sendResponse({ok});
+  } else if (msg.type === 'inspect-frames') {
+    sendResponse(inspectFrames());
+  }
+});
