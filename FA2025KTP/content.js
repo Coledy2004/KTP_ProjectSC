@@ -318,10 +318,174 @@ function inspectFrames() {
   return {count: frames.length};
 }
 
+// Create a small overlay button that the user can click to perform a seek (user gesture)
+function createSeekOverlay(targetTimeSeconds) {
+  // Remove existing overlay if any
+  const existing = document.getElementById('ktp-seek-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'ktp-seek-overlay';
+  overlay.style.position = 'fixed';
+  overlay.style.right = '18px';
+  overlay.style.bottom = '18px';
+  overlay.style.background = 'rgba(229,9,20,0.95)';
+  overlay.style.color = '#fff';
+  overlay.style.padding = '10px 12px';
+  overlay.style.borderRadius = '8px';
+  overlay.style.zIndex = 2147483647; // max z-index
+  overlay.style.cursor = 'pointer';
+  overlay.style.boxShadow = '0 6px 18px rgba(0,0,0,0.4)';
+  overlay.textContent = 'Jump to ' + formatTime(targetTimeSeconds) + ' (click to confirm)';
+
+  overlay.addEventListener('click', (ev) => {
+    // This click is a user gesture — perform direct seek safely here
+    const v = findVideo();
+    if (v) {
+      try {
+        v.currentTime = targetTimeSeconds;
+        // remove overlay
+        overlay.remove();
+      } catch (e) {
+        // as a last resort, simulate a progress click inside this user handler
+        try {
+          const duration = v.duration || 1;
+          const pct = Math.max(0, Math.min(1, targetTimeSeconds / duration));
+          const progressSelectors = ['.player-progress', '[data-uia="player-progress"]', '.PlayerProgressBar--progress', '.progress-bar', '.slider'];
+          let progressEl = null;
+          for (const s of progressSelectors) {
+            const found = document.querySelector(s);
+            if (found) { progressEl = found; break; }
+          }
+          if (progressEl) {
+            const rect = progressEl.getBoundingClientRect();
+            const x = rect.left + Math.max(2, Math.min(rect.width - 2, pct * rect.width));
+            const y = rect.top + rect.height / 2;
+            ['mousemove','mousedown','mouseup','click'].forEach(type => {
+              const evt = new MouseEvent(type, {clientX: x, clientY: y, bubbles: true, cancelable: true});
+              progressEl.dispatchEvent(evt);
+            });
+          }
+        } catch (e2) {
+          console.warn('Overlay fallback seek failed', e2 && e2.message);
+        }
+      }
+    }
+  }, {once: true});
+
+  document.body.appendChild(overlay);
+  // auto-remove after 20 seconds
+  setTimeout(()=>{ const el = document.getElementById('ktp-seek-overlay'); if (el) el.remove(); }, 20000);
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
   if (msg.type === 'get-now-watching') {
     sendResponse(readNowWatching());
+  } else if (msg.type === 'query-current-time') {
+    const v = findVideo();
+    sendResponse({currentTime: v ? v.currentTime : null});
+  } else if (msg.type === 'seek') {
+    try {
+      const v = findVideo();
+      const target = (typeof msg.time === 'number' && isFinite(msg.time)) ? msg.time : null;
+      if (!v || target === null) {
+        sendResponse({ok:false, reason: 'no-video-or-invalid-time'});
+        return;
+      }
+
+      // Ensure time within seekable range when available
+      try {
+        if (v.seekable && v.seekable.length) {
+          const start = v.seekable.start(0);
+          const end = v.seekable.end(v.seekable.length - 1);
+          if (target < start) target = start;
+          if (target > end) target = end;
+        }
+      } catch (e) {
+        // ignore seekable checks if they throw
+      }
+
+      // 1) Try direct video.currentTime
+      try {
+        v.currentTime = target;
+        console.log('KTP seek: used video.currentTime ->', target);
+        sendResponse({ok:true, method:'video.currentTime'});
+        return;
+      } catch (e) {
+        // fallthrough to other strategies
+        console.warn('Direct currentTime seek failed', e && e.message);
+      }
+
+      // 2) Try Netflix player API (best-effort)
+      try {
+        const app = window.netflix && window.netflix.appContext;
+        const playerApp = app && app.state && app.state.playerApp && app.state.playerApp;
+        if (playerApp && playerApp.getAPI) {
+          const api = playerApp.getAPI && playerApp.getAPI();
+          if (api && api.videoPlayer && api.videoPlayer.getAllPlayerSessionIds) {
+            const sessionIds = api.videoPlayer.getAllPlayerSessionIds();
+            if (sessionIds && sessionIds.length) {
+              const vp = api.videoPlayer.getVideoPlayerBySessionId(sessionIds[0]);
+              if (vp && typeof vp.seek === 'function') {
+                    try {
+                      vp.seek(target);
+                      console.log('KTP seek: used netflix.api.seek ->', target);
+                      sendResponse({ok:true, method:'netflix.api.seek'});
+                      return;
+                    } catch(e) {
+                      console.warn('netflix.api.seek threw', e && e.message);
+                    }
+                  }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Netflix API seek failed', e && e.message);
+      }
+
+      // 3) Fallback: simulate a click on the progress bar at the target percentage
+      try {
+        const duration = v.duration || 1;
+        const pct = Math.max(0, Math.min(1, target / duration));
+        // Try several selector variants for Netflix progress bar
+        const progressSelectors = ['.player-progress', '[data-uia="player-progress"]', '.PlayerProgressBar--progress', '.progress-bar', '.slider'];
+        let progressEl = null;
+        for (const s of progressSelectors) {
+          const found = document.querySelector(s);
+          if (found) { progressEl = found; break; }
+        }
+          if (progressEl) {
+          const rect = progressEl.getBoundingClientRect();
+          const x = rect.left + Math.max(2, Math.min(rect.width - 2, pct * rect.width));
+          const y = rect.top + rect.height / 2;
+          // Dispatch mouse events to simulate user interaction
+          ['mousemove','mousedown','mouseup','click'].forEach(type => {
+            const evt = new MouseEvent(type, {clientX: x, clientY: y, bubbles: true, cancelable: true});
+            progressEl.dispatchEvent(evt);
+          });
+          console.log('KTP seek: used progress-click ->', target, 'pct', pct);
+          sendResponse({ok:true, method:'progress-click'});
+          return;
+        }
+      } catch (e) {
+        console.warn('Progress click fallback failed', e && e.message);
+      }
+
+      // If all attempts failed
+      // Create a user-gesture overlay to let the user click to seek (avoids programmatic restrictions)
+      try {
+        createSeekOverlay(target);
+      } catch (e) {
+        console.warn('Failed to create seek overlay', e && e.message);
+      }
+      sendResponse({ok:false, reason:'all-strategies-failed', hint:'overlay_shown'});
+      return;
+    } catch (err) {
+      console.error('Error handling seek message', err);
+      sendResponse({ok:false, reason: err && err.message});
+      return;
+    }
   } else if (msg.type === 'play') {
     const v = findVideo(); if (v) v.play(); sendResponse({ok: !!v});
   } else if (msg.type === 'pause') {

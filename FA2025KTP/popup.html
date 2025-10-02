@@ -70,11 +70,16 @@
       <textarea id="note" rows="3" placeholder="Jot a note about this scene..."></textarea>
       <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end">
         <button id="save-note">Save</button>
+        <button id="save-timestamp" class="secondary">Save at timestamp</button>
       </div>
     </div>
 
     <div class="card">
       <div class="small muted">Advanced</div>
+      <div style="margin-top:8px">
+        <div class="small muted">Comments for this title</div>
+        <div id="comments-list" style="margin-top:8px;max-height:160px;overflow:auto"></div>
+      </div>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
         <button id="inspect-frames" class="secondary">Inspect Frames</button>
         <button id="open-settings" class="secondary">Open Settings</button>
@@ -84,6 +89,6 @@
 
   <div class="footer">KTP • Netflix Tools — prototype</div>
 
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>
