@@ -17,12 +17,14 @@
 		}
 	},
 	"background": {
-		"service_worker": "background.js"
+		"service_worker": "background.js",
+		"type": "module"
 	},
 	"permissions": [
 		"storage",
 		"scripting",
-		"activeTab"
+		"activeTab",
+		"notifications"
 	],
 	"host_permissions": [
 		"https://www.netflix.com/*"
