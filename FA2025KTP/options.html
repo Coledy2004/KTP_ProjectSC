@@ -28,19 +28,6 @@
     <button id="save">Save</button>
   </div>
 
-  <script>
-    const $ = id => document.getElementById(id);
-    // load
-    chrome.storage.local.get(['autoMonitor','pollInterval'], (res)=>{
-      if(res.autoMonitor!==undefined) $('autoMonitor').value = String(res.autoMonitor);
-      if(res.pollInterval) $('pollInterval').value = res.pollInterval;
-    });
-    $('save').addEventListener('click', ()=>{
-      const obj = {autoMonitor: $('autoMonitor').value==='true', pollInterval: Number($('pollInterval').value||3000)};
-      chrome.storage.local.set(obj, ()=>{
-        alert('Settings saved');
-      });
-    });
-  </script>
+  <script src="options.js"></script>
 </body>
 </html>

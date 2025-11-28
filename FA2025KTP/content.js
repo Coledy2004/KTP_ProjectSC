@@ -8,79 +8,70 @@ let currentMovieId = null;
 // Netflix-specific title extraction methods
 function getNetflixTitle() {
   try {
-    // Method 1: Check document title (most reliable)
+    // Method 1: Check og:title meta tag (most reliable)
+    const metaTitle = document.querySelector('meta[property="og:title"]');
+    if (metaTitle && metaTitle.content && metaTitle.content !== 'Netflix') {
+      return metaTitle.content.replace(' | Netflix', '').replace(' - Netflix', '').trim();
+    }
+
+    // Method 2: Check document title as fallback
     const docTitle = document.title;
     if (docTitle && docTitle !== 'Netflix' && !docTitle.includes('Browse')) {
       const cleanTitle = docTitle.replace(' - Netflix', '').replace('Netflix', '').trim();
-      if (cleanTitle && cleanTitle !== previousTitle) {
+      if (cleanTitle && cleanTitle.length > 0) {
         return cleanTitle;
       }
     }
 
-    // Method 2: Look for video player overlay elements
+    // Method 3: Look for video player overlay elements with improved selectors
     const playerOverlaySelectors = [
-      '[data-uia="video-title"]',
-      '.video-title',
-      '[data-uia="title-card-title"]',
-      '.title-card-title',
-      'h3[data-uia="episode-title"]',
       'h1[data-uia="video-title"]',
-      '.previewModal--player-titleTreatment-logo img[alt]',
-      '.watch-video--title-text',
-      '.watch-video--episode-title'
+      'span[data-uia="video-title"]',
+      '[data-uia="video-title-container"] h1',
+      '[data-uia="video-title-container"] span',
+      '.player-title-card h1',
+      '.player-title-card span',
+      'h3[data-uia="episode-title"]',
+      'span[data-uia="episode-title"]'
     ];
 
     for (const selector of playerOverlaySelectors) {
       const element = document.querySelector(selector);
       if (element) {
         let title = element.innerText || element.textContent;
-        if (element.tagName === 'IMG' && element.alt) {
-          title = element.alt;
-        }
-        if (title && title.trim()) {
+        if (title && title.trim() && title.trim().length > 0) {
           return title.trim();
         }
       }
     }
 
-    // Method 3: Extract from URL pattern
+    // Method 4: Extract from URL pattern and update movie ID
     const urlMatch = location.href.match(/\/watch\/(\d+)/);
     if (urlMatch) {
       const movieId = urlMatch[1];
       if (movieId !== currentMovieId) {
         currentMovieId = movieId;
-        // Try to get title from Netflix API or page metadata
-        const metaTitle = document.querySelector('meta[property="og:title"]');
-        if (metaTitle && metaTitle.content && metaTitle.content !== 'Netflix') {
-          return metaTitle.content.replace(' | Netflix', '').trim();
-        }
       }
     }
 
-    // Method 4: Look for any visible title text in video area
-    const videoContainer = document.querySelector('.watch-video') || 
-                          document.querySelector('[data-uia="video-canvas"]') ||
-                          document.querySelector('.NFPlayer');
+    // Method 5: Look for any visible title text in video area
+    const videoContainer = document.querySelector('[data-uia="video-canvas"]') || 
+                          document.querySelector('.NFPlayer') ||
+                          document.querySelector('.watch-video');
     
     if (videoContainer) {
-      if(currentMovieId === "Privacy Preference Center"){
-        currentMovieId = previousTitle;
-      }
-      const titleElements = videoContainer.querySelectorAll('h1, h2, h3, [class*="title"], [data-uia*="title"]');
+      const titleElements = videoContainer.querySelectorAll('h1, h2, h3');
       for (const el of titleElements) {
         const text = el.innerText || el.textContent;
-        if (text && text.trim() && text.length > 2 && text.length < 200) {
+        if (text && text.trim() && text.length > 2 && text.length < 200 && !text.includes('Netflix')) {
           return text.trim();
         }
       }
     }
 
-    // Method 5: Fallback to any prominent heading on the page
+    // Method 6: Fallback to any prominent heading on the page
     const headings = document.querySelectorAll('h1, h2');
     for (const heading of headings) {
-       if(currentMovieId === "Privacy Preference Center"){
-        currentMovieId = previousTitle;
-      }
       const text = heading.innerText || heading.textContent;
       if (text && text.trim() && 
           !text.includes('Netflix') && 
@@ -101,29 +92,19 @@ function getNetflixTitle() {
 function checkTitle() {
   try {
     // Only run on Netflix watch pages
-    if (!location.href.includes('/watch/') && !location.href.includes('netflix.com')) {
-      return;
+    if (!location.href.includes('netflix.com/watch')) {
+      return null;
     }
 
     const title = getNetflixTitle();
     
     if (title && title !== previousTitle) {
       console.log("Netflix - Now watching:", title);
-      
-      // Send to background script if available
-      chrome.runtime.sendMessage({
-        action: 'netflix-title-changed',
-        title: title,
-        url: location.href,
-        timestamp: Date.now(),
-        movieId: currentMovieId
-      }).catch(err => console.log('Background script not available:', err.message));
-      
       previousTitle = title;
       return title;
     }
     
-    return title;
+    return previousTitle;
   } catch (error) {
     console.error('Error in checkTitle:', error);
     return null;
@@ -131,16 +112,15 @@ function checkTitle() {
 }
 
 // Start monitoring function
-function startNetflixMonitoring(intervalMs = 3000) {
+function startNetflixMonitoring(intervalMs = 2000) {
   if (titleCheckInterval) {
     clearInterval(titleCheckInterval);
   }
   
   console.log('Starting Netflix title monitoring...');
-  titleCheckInterval = setInterval(checkTitle, intervalMs);
-  
   // Check immediately
-  setTimeout(checkTitle, 1000);
+  checkTitle();
+  titleCheckInterval = setInterval(checkTitle, intervalMs);
 }
 
 // Stop monitoring
@@ -223,24 +203,13 @@ function createNetflixObserver() {
   return observer;
 }
 
-// Message listener
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  try {
-    if (msg && msg.action === 'get-netflix-title') {
-      const title = checkTitle();
-      sendResponse({title: title, url: location.href, movieId: currentMovieId});
-    } else if (msg && msg.action === 'start-netflix-monitoring') {
-      startNetflixMonitoring();
-      sendResponse({status: 'Netflix monitoring started'});
-    } else if (msg && msg.action === 'stop-netflix-monitoring') {
-      stopMonitoring();
-      sendResponse({status: 'Netflix monitoring stopped'});
-    }
-  } catch (error) {
-    console.error('Error handling message:', error);
-    sendResponse({error: error.message});
-  }
-});
+// Helper to format seconds to mm:ss
+function formatTime(sec) {
+  if (!isFinite(sec)) return '00:00';
+  const s = Math.floor(sec % 60).toString().padStart(2,'0');
+  const m = Math.floor(sec/60).toString().padStart(2,'0');
+  return `${m}:${s}`;
+}
 
 // Initialize based on current page
 let observer = null;
@@ -278,11 +247,65 @@ function findVideo() {
 }
 
 function readNowWatching() {
-  const titleEl = document.querySelector('.video-title h4, .ellipsize-text');
-  const episodeEl = document.querySelector('.previewModal--player-titleTreatment-v2 h4, .player-title .ellipsize-text, .episode-title');
+  // Try multiple selectors for Netflix title
+  let title = null;
+  let episode = null;
+  
+  // Method 1: og:title meta tag (most reliable)
+  const metaTitle = document.querySelector('meta[property="og:title"]');
+  if (metaTitle && metaTitle.content && metaTitle.content !== 'Netflix') {
+    title = metaTitle.content.replace(' | Netflix', '').replace(' - Netflix', '').trim();
+  }
+  
+  // Method 2: Try document title
+  if (!title) {
+    const docTitle = document.title;
+    if (docTitle && docTitle !== 'Netflix') {
+      title = docTitle.replace(' - Netflix', '').trim();
+    }
+  }
+  
+  // Method 3: Look for visible title elements
+  if (!title) {
+    const titleSelectors = [
+      'h1[data-uia="video-title"]',
+      'span[data-uia="video-title"]',
+      '[data-uia="video-title-container"] h1',
+      '.player-title h1',
+      'h1.video-title'
+    ];
+    for (const sel of titleSelectors) {
+      const el = document.querySelector(sel);
+      if (el) {
+        const text = el.innerText || el.textContent;
+        if (text && text.trim()) {
+          title = text.trim();
+          break;
+        }
+      }
+    }
+  }
+  
+  // Try to find episode info
+  const episodeSelectors = [
+    'h3[data-uia="episode-title"]',
+    'span[data-uia="episode-title"]',
+    '.episode-title'
+  ];
+  for (const sel of episodeSelectors) {
+    const el = document.querySelector(sel);
+    if (el) {
+      const text = el.innerText || el.textContent;
+      if (text && text.trim()) {
+        episode = text.trim();
+        break;
+      }
+    }
+  }
+  
   return {
-    title: titleEl ? titleEl.innerText.trim() : null,
-    episode: episodeEl ? episodeEl.innerText.trim() : null
+    title: title,
+    episode: episode || ''
   };
 }
 
@@ -379,122 +402,159 @@ function createSeekOverlay(targetTimeSeconds) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg || !msg.type) return;
-  if (msg.type === 'get-now-watching') {
-    sendResponse(readNowWatching());
-  } else if (msg.type === 'query-current-time') {
-    const v = findVideo();
-    sendResponse({currentTime: v ? v.currentTime : null});
-  } else if (msg.type === 'seek') {
-    try {
-      const v = findVideo();
-      const target = (typeof msg.time === 'number' && isFinite(msg.time)) ? msg.time : null;
-      if (!v || target === null) {
-        sendResponse({ok:false, reason: 'no-video-or-invalid-time'});
-        return;
-      }
-
-      // Ensure time within seekable range when available
-      try {
-        if (v.seekable && v.seekable.length) {
-          const start = v.seekable.start(0);
-          const end = v.seekable.end(v.seekable.length - 1);
-          if (target < start) target = start;
-          if (target > end) target = end;
-        }
-      } catch (e) {
-        // ignore seekable checks if they throw
-      }
-
-      // 1) Try direct video.currentTime
-      try {
-        v.currentTime = target;
-        console.log('KTP seek: used video.currentTime ->', target);
-        sendResponse({ok:true, method:'video.currentTime'});
-        return;
-      } catch (e) {
-        // fallthrough to other strategies
-        console.warn('Direct currentTime seek failed', e && e.message);
-      }
-
-      // 2) Try Netflix player API (best-effort)
-      try {
-        const app = window.netflix && window.netflix.appContext;
-        const playerApp = app && app.state && app.state.playerApp && app.state.playerApp;
-        if (playerApp && playerApp.getAPI) {
-          const api = playerApp.getAPI && playerApp.getAPI();
-          if (api && api.videoPlayer && api.videoPlayer.getAllPlayerSessionIds) {
-            const sessionIds = api.videoPlayer.getAllPlayerSessionIds();
-            if (sessionIds && sessionIds.length) {
-              const vp = api.videoPlayer.getVideoPlayerBySessionId(sessionIds[0]);
-              if (vp && typeof vp.seek === 'function') {
-                    try {
-                      vp.seek(target);
-                      console.log('KTP seek: used netflix.api.seek ->', target);
-                      sendResponse({ok:true, method:'netflix.api.seek'});
-                      return;
-                    } catch(e) {
-                      console.warn('netflix.api.seek threw', e && e.message);
-                    }
-                  }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('Netflix API seek failed', e && e.message);
-      }
-
-      // 3) Fallback: simulate a click on the progress bar at the target percentage
-      try {
-        const duration = v.duration || 1;
-        const pct = Math.max(0, Math.min(1, target / duration));
-        // Try several selector variants for Netflix progress bar
-        const progressSelectors = ['.player-progress', '[data-uia="player-progress"]', '.PlayerProgressBar--progress', '.progress-bar', '.slider'];
-        let progressEl = null;
-        for (const s of progressSelectors) {
-          const found = document.querySelector(s);
-          if (found) { progressEl = found; break; }
-        }
-          if (progressEl) {
-          const rect = progressEl.getBoundingClientRect();
-          const x = rect.left + Math.max(2, Math.min(rect.width - 2, pct * rect.width));
-          const y = rect.top + rect.height / 2;
-          // Dispatch mouse events to simulate user interaction
-          ['mousemove','mousedown','mouseup','click'].forEach(type => {
-            const evt = new MouseEvent(type, {clientX: x, clientY: y, bubbles: true, cancelable: true});
-            progressEl.dispatchEvent(evt);
-          });
-          console.log('KTP seek: used progress-click ->', target, 'pct', pct);
-          sendResponse({ok:true, method:'progress-click'});
-          return;
-        }
-      } catch (e) {
-        console.warn('Progress click fallback failed', e && e.message);
-      }
-
-      // If all attempts failed
-      // Create a user-gesture overlay to let the user click to seek (avoids programmatic restrictions)
-      try {
-        createSeekOverlay(target);
-      } catch (e) {
-        console.warn('Failed to create seek overlay', e && e.message);
-      }
-      sendResponse({ok:false, reason:'all-strategies-failed', hint:'overlay_shown'});
-      return;
-    } catch (err) {
-      console.error('Error handling seek message', err);
-      sendResponse({ok:false, reason: err && err.message});
+  try {
+    console.log('[content] message received:', msg);
+    if (!msg || !msg.type) {
+      console.warn('[content] Invalid message received', msg);
       return;
     }
-  } else if (msg.type === 'play') {
-    const v = findVideo(); if (v) v.play(); sendResponse({ok: !!v});
-  } else if (msg.type === 'pause') {
-    const v = findVideo(); if (v) v.pause(); sendResponse({ok: !!v});
-  } else if (msg.type === 'sub-toggle') {
-    const ok = toggleSubtitles(); sendResponse({ok});
-  } else if (msg.type === 'sub-next') {
-    const ok = nextSubtitle(); sendResponse({ok});
-  } else if (msg.type === 'inspect-frames') {
-    sendResponse(inspectFrames());
+    if (msg.type === 'get-now-watching') {
+      const result = readNowWatching();
+      console.log('[content] get-now-watching result:', result);
+      sendResponse(result);
+    } else if (msg.type === 'query-current-time') {
+      const v = findVideo();
+      sendResponse({currentTime: v ? v.currentTime : null});
+    } else if (msg.type === 'play') {
+      console.log('[content] play message received');
+      const v = findVideo();
+      if (v) {
+        console.log('[content] found video element, calling play()');
+        v.play().catch(e => console.error('[content] play() failed:', e));
+      } else {
+        console.log('[content] no video element found');
+      }
+      sendResponse({ok: !!v});
+    } else if (msg.type === 'pause') {
+      console.log('[content] pause message received');
+      const v = findVideo();
+      if (v) {
+        console.log('[content] found video element, calling pause()');
+        v.pause();
+      } else {
+        console.log('[content] no video element found');
+      }
+      sendResponse({ok: !!v});
+    } else if (msg.type === 'seek') {
+      try {
+        const v = findVideo();
+        const target = (typeof msg.time === 'number' && isFinite(msg.time)) ? msg.time : null;
+        if (!v || target === null) {
+          sendResponse({ok:false, reason: 'no-video-or-invalid-time'});
+          return;
+        }
+
+        // Ensure time within seekable range when available
+        try {
+          if (v.seekable && v.seekable.length) {
+            const start = v.seekable.start(0);
+            const end = v.seekable.end(v.seekable.length - 1);
+            if (target < start) target = start;
+            if (target > end) target = end;
+          }
+        } catch (e) {
+          // ignore seekable checks if they throw
+        }
+
+        // 1) Try direct video.currentTime
+        try {
+          v.currentTime = target;
+          console.log('KTP seek: used video.currentTime ->', target);
+          sendResponse({ok:true, method:'video.currentTime'});
+          return;
+        } catch (e) {
+          // fallthrough to other strategies
+          console.warn('Direct currentTime seek failed', e && e.message);
+        }
+
+        // 2) Try Netflix player API (best-effort)
+        try {
+          const app = window.netflix && window.netflix.appContext;
+          const playerApp = app && app.state && app.state.playerApp && app.state.playerApp;
+          if (playerApp && playerApp.getAPI) {
+            const api = playerApp.getAPI && playerApp.getAPI();
+            if (api && api.videoPlayer && api.videoPlayer.getAllPlayerSessionIds) {
+              const sessionIds = api.videoPlayer.getAllPlayerSessionIds();
+              if (sessionIds && sessionIds.length) {
+                const vp = api.videoPlayer.getVideoPlayerBySessionId(sessionIds[0]);
+                if (vp && typeof vp.seek === 'function') {
+                  try {
+                    vp.seek(target);
+                    console.log('KTP seek: used netflix.api.seek ->', target);
+                    sendResponse({ok:true, method:'netflix.api.seek'});
+                    return;
+                  } catch(e) {
+                    console.warn('netflix.api.seek threw', e && e.message);
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Netflix API seek failed', e && e.message);
+        }
+
+        // 3) Fallback: simulate a click on the progress bar at the target percentage
+        try {
+          const duration = v.duration || 1;
+          const pct = Math.max(0, Math.min(1, target / duration));
+          // Try several selector variants for Netflix progress bar
+          const progressSelectors = ['.player-progress', '[data-uia="player-progress"]', '.PlayerProgressBar--progress', '.progress-bar', '.slider'];
+          let progressEl = null;
+          for (const s of progressSelectors) {
+            const found = document.querySelector(s);
+            if (found) { progressEl = found; break; }
+          }
+          if (progressEl) {
+            const rect = progressEl.getBoundingClientRect();
+            const x = rect.left + Math.max(2, Math.min(rect.width - 2, pct * rect.width));
+            const y = rect.top + rect.height / 2;
+            // Dispatch mouse events to simulate user interaction
+            ['mousemove','mousedown','mouseup','click'].forEach(type => {
+              const evt = new MouseEvent(type, {clientX: x, clientY: y, bubbles: true, cancelable: true});
+              progressEl.dispatchEvent(evt);
+            });
+            console.log('KTP seek: used progress-click ->', target, 'pct', pct);
+            sendResponse({ok:true, method:'progress-click'});
+            return;
+          }
+        } catch (e) {
+          console.warn('Progress click fallback failed', e && e.message);
+        }
+
+        // If all attempts failed
+        // Create a user-gesture overlay to let the user click to seek (avoids programmatic restrictions)
+        try {
+          createSeekOverlay(target);
+        } catch (e) {
+          console.warn('Failed to create seek overlay', e && e.message);
+        }
+        sendResponse({ok:false, reason:'all-strategies-failed', hint:'overlay_shown'});
+        return;
+      } catch (err) {
+        console.error('Error handling seek message', err);
+        sendResponse({ok:false, reason: err && err.message});
+        return;
+      }
+    } else if (msg.type === 'sub-toggle') {
+      console.log('[content] sub-toggle message received');
+      const ok = toggleSubtitles();
+      console.log('[content] toggleSubtitles result:', ok);
+      sendResponse({ok});
+    } else if (msg.type === 'sub-next') {
+      console.log('[content] sub-next message received');
+      const ok = nextSubtitle();
+      console.log('[content] nextSubtitle result:', ok);
+      sendResponse({ok});
+    } else if (msg.type === 'inspect-frames') {
+      console.log('[content] inspect-frames message received');
+      sendResponse(inspectFrames());
+    } else {
+      console.log('[content] unknown message type:', msg.type);
+      sendResponse({error: 'unknown message type'});
+    }
+  } catch (error) {
+    console.error('[content] Error handling message:', error);
+    sendResponse({error: error.message});
   }
 });
