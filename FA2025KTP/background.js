@@ -1,14 +1,14 @@
 // background service worker (Manifest V3)
-import { listenForAllFriendTimestamps } from './firebase-config.js';
+import { listenForAllFriendTimestamps, sendTimestampEvent } from './firebase-config.js';
 
 // Ensure service worker stays live when possible: log lifecycle events
 self.addEventListener('install', (event) => {
-  console.log('Service worker installed');
+  console.log('[background] Service worker installed');
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  console.log('Service worker activated');
+  console.log('[background] Service worker activated');
 });
 
 // simple time formatter for notifications
@@ -22,28 +22,42 @@ function formatTime(sec) {
 let unsubAll = null;
 
 async function startBackgroundListeners() {
-  // load friend list from storage (expect array of userIds). If missing, listen to all.
+  // Load friend list from storage. If missing, listen to all timestamps.
   const data = await chrome.storage.local.get(['friends']);
   const friendIds = data.friends || [];
 
-  // Start a collectionGroup listener to receive timestamps across all shows
+  console.log('[background] Starting friend timestamp listener with friends:', friendIds);
+
+  // Start a collectionGroup listener to receive timestamps across all shows from friends
   try {
     unsubAll = listenForAllFriendTimestamps(friendIds, (event) => {
-      console.log('New friend timestamp event', event);
-      const title = `${event.userId} left a timestamp`;
-      const message = (event.timestamp !== undefined && event.timestamp !== null) ? `At ${formatTime(event.timestamp)} — ${event.note||''}` : (event.note||'');
-      // create a notification
+      console.log('[background] New friend timestamp event', event);
+      
+      if (!event || !event.showId) {
+        console.warn('[background] Invalid event structure:', event);
+        return;
+      }
+      
+      const title = `${event.userId} left a timestamp at ${formatTime(event.timestamp)}`;
+      const message = event.note || 'Check it out!';
+      
+      // Create a notification
       chrome.notifications.create('', {
         type: 'basic',
         iconUrl: 'icons/icon48.png',
-        title,
-        message: message || 'Tapped timestamp',
+        title: title,
+        message: message,
       }, (id) => {
-        // optional callback
+        if (chrome.runtime.lastError) {
+          console.warn('[background] Notification error:', chrome.runtime.lastError.message);
+        } else {
+          console.log('[background] Notification created:', id);
+        }
       });
     });
+    console.log('[background] Friend timestamp listener started successfully');
   } catch (e) {
-    console.warn('Failed to start friend timestamps listener', e && e.message);
+    console.warn('[background] Failed to start friend timestamps listener', e && e.message);
   }
 }
 
@@ -53,6 +67,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === 'ping') {
     sendResponse({msg: 'pong from background'});
   }
-  // Return true if you'll call sendResponse asynchronously.
+  
+  // Handle comment saves from popup via Firebase
+  if (message && message.action === 'saveCommentToFirebase') {
+    console.log('[background] Received saveCommentToFirebase message:', message);
+    
+    // Try to send to Firebase
+    sendTimestampEvent(
+      message.showId,
+      message.userId,
+      message.timestamp,
+      message.note
+    ).then(() => {
+      console.log('[background] Comment successfully saved to Firebase');
+      sendResponse({success: true});
+    }).catch((e) => {
+      console.warn('[background] Failed to save comment to Firebase:', e?.message);
+      sendResponse({success: false, error: e?.message});
+    });
+    
+    return true; // Indicate we'll call sendResponse asynchronously
+  }
+  
   return false;
 });

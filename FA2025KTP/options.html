@@ -5,16 +5,22 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>KTP Settings</title>
   <style>
-    body{font-family:Inter, Arial;background:#141414;color:#fff;padding:20px}
+    body{font-family:Inter, Arial;background:#141414;color:#fff;padding:20px;max-width:600px}
     h1{color:#e50914}
     label{display:block;margin-top:12px;color:#b3b3b3}
-    input,select{width:100%;padding:8px;border-radius:6px;margin-top:6px;background:#0f0f0f;border:1px solid rgba(255,255,255,0.06);color:#fff}
-    button{background:#e50914;color:#fff;padding:8px 12px;border-radius:6px;border:none;margin-top:12px}
+    input,select,textarea{width:100%;padding:8px;border-radius:6px;margin-top:6px;background:#0f0f0f;border:1px solid rgba(255,255,255,0.06);color:#fff;box-sizing:border-box}
+    button{background:#e50914;color:#fff;padding:8px 12px;border-radius:6px;border:none;margin-top:12px;cursor:pointer}
+    .info{margin-top:12px;padding:12px;background:#1f1f1f;border-radius:6px;font-size:12px;color:#b3b3b3}
   </style>
 </head>
 <body>
   <h1>KTP Settings</h1>
-  <p class="muted">Basic settings for the KTP Netflix Tools extension.</p>
+  <p class="muted">Configure KTP Netflix Tools and friend sharing.</p>
+
+  <label for="friends">Friend IDs (comma-separated Firebase UIDs)</label>
+  <textarea id="friends" rows="4" placeholder="friend1_uid, friend2_uid, ..."></textarea>
+  <div class="info">Paste the Firebase UIDs of friends you want to receive timestamps from. Leave empty to see all public timestamps.</div>
+
   <label for="autoMonitor">Auto-start monitoring on watch pages</label>
   <select id="autoMonitor">
     <option value="true">Enabled</option>
@@ -22,10 +28,19 @@
   </select>
 
   <label for="pollInterval">Title poll interval (ms)</label>
-  <input id="pollInterval" type="number" value="3000" />
+  <input id="pollInterval" type="number" value="2000" min="500" max="10000" />
 
   <div>
-    <button id="save">Save</button>
+    <button id="save">Save Settings</button>
+    <button id="reset" style="background:#666;margin-left:8px">Reset to Defaults</button>
+  </div>
+
+  <div class="info" style="margin-top:20px">
+    <strong>How to find your Firebase UID:</strong>
+    1. Sign into the extension (anonymous or email auth)
+    2. Open DevTools Console (F12)
+    3. Run: <code>window.currentAuth && window.currentAuth.uid</code>
+    4. Copy the UID and share with friends
   </div>
 
   <script src="options.js"></script>

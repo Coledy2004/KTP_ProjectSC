@@ -27,7 +27,16 @@
 		"notifications"
 	],
 	"host_permissions": [
-		"https://www.netflix.com/*"
+		"https://*.netflix.com/*"
+	],
+	"content_security_policy": {
+		"script-src": ["'self'", "https://www.gstatic.com/firebasejs/", "'wasm-unsafe-eval'"]
+	},
+	"web_accessible_resources": [
+		{
+			"resources": ["*.js"],
+			"matches": ["<all_urls>"]
+		}
 	],
 	"content_scripts": [
 		{
