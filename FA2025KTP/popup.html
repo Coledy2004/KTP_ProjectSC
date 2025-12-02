@@ -50,6 +50,12 @@
     .text-success{color:var(--success)}
     .margin-top{margin-top:10px}
     .flex-gap{display:flex;gap:8px}
+    /* Playback controls: stack buttons and make them full-width */
+    .playback-controls{display:flex;flex-direction:column;gap:8px}
+    .playback-controls button{width:100%}
+    /* Make the Play button use the main accent red to stand out */
+    #btn-play{background:var(--accent);color:#fff;border:none}
+    #btn-play:hover{background:rgba(229,9,20,0.9)}
   </style>
 </head>
 <body>
@@ -127,15 +133,18 @@
     <!-- Playback Controls (optional) -->
     <div class="card">
       <div class="small muted">Playback</div>
-      <div class="flex-gap" style="margin-top:8px">
+      <div class="playback-controls" style="margin-top:8px">
         <button id="btn-play" class="secondary">▶ Play</button>
         <button id="btn-pause" class="secondary">⏸ Pause</button>
-        <button id="btn-sub-toggle" class="secondary">◼ Subtitles</button>
       </div>
     </div>
   </div>
 
-  <div class="footer">KTP • Movie Journal — Enjoy annotating your shows!</div>
+  <div class="footer">
+    <div style="margin-bottom:8px">KTP • Movie Journal — Enjoy annotating your shows!</div>
+    <button id="btn-show-uid" class="secondary" style="padding:4px 8px;font-size:11px;width:100%">Show User ID</button>
+    <div id="uid-display" class="muted small" style="margin-top:6px;text-align:center;min-height:16px"></div>
+  </div>
 
   <script type="module" src="popup.js"></script>
 </body>

@@ -28,51 +28,50 @@ async function ensureContentScript(tabId) {
     return false;
   }
 }
-async function sendToContent(tabId, msg) {
+async function sendToContent(tabId, msg, retries = 3) {
   return new Promise((resolve) => {
-    try {
-      console.log('[popup] sending message to tab', tabId, ':', msg.type);
-      chrome.tabs.sendMessage(tabId, msg, (response) => {
-        if (chrome.runtime.lastError) {
-          const errMsg = chrome.runtime.lastError.message || '';
-          console.warn('[popup] sendMessage runtime error:', errMsg);
+    const attemptSend = (attempt = 0) => {
+      try {
+        console.log('[popup] sending message to tab', tabId, ':', msg.type, '(attempt', attempt + 1, ')');
+        chrome.tabs.sendMessage(tabId, msg, (response) => {
+          if (chrome.runtime.lastError) {
+            const errMsg = chrome.runtime.lastError.message || '';
+            console.warn('[popup] sendMessage runtime error:', errMsg);
 
-          // If receiving end does not exist, try to inject the content script and retry once
-          if (errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection')) {
-            console.log('[popup] detected missing content script, attempting injection...');
-            ensureContentScript(tabId).then((ok) => {
-              if (!ok) {
-                console.warn('[popup] injection failed, cannot contact content script');
-                resolve(null);
-                return;
-              }
+            // If receiving end does not exist, retry or inject
+            if ((errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection')) && attempt < retries) {
+              console.log('[popup] retrying message send (attempt', attempt + 1, 'of', retries, ')...');
+              setTimeout(() => attemptSend(attempt + 1), 300 + (attempt * 200));
+              return;
+            }
 
-              // Small delay to allow the injected script to register its listener
-              setTimeout(() => {
-                chrome.tabs.sendMessage(tabId, msg, (response2) => {
-                  if (chrome.runtime.lastError) {
-                    console.warn('[popup] retry sendMessage failed:', chrome.runtime.lastError.message);
-                    resolve(null);
-                  } else {
-                    console.log('[popup] got response (retry):', response2);
-                    resolve(response2);
-                  }
-                });
-              }, 250);
-            });
-            return;
+            // If still failing after retries, try injecting the content script once
+            if (attempt === 0 && (errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection'))) {
+              console.log('[popup] detected missing content script, attempting injection...');
+              ensureContentScript(tabId).then((ok) => {
+                if (!ok) {
+                  console.warn('[popup] injection failed, cannot contact content script');
+                  resolve(null);
+                  return;
+                }
+                // Retry after injection
+                setTimeout(() => attemptSend(attempt + 1), 500);
+              });
+              return;
+            }
+
+            resolve(null);
+          } else {
+            console.log('[popup] got response:', response);
+            resolve(response);
           }
-
-          resolve(null);
-        } else {
-          console.log('[popup] got response:', response);
-          resolve(response);
-        }
-      });
-    } catch (e) {
-      console.warn('[popup] sendMessage exception:', e && e.message);
-      resolve(null);
-    }
+        });
+      } catch (e) {
+        console.warn('[popup] sendMessage exception:', e && e.message);
+        resolve(null);
+      }
+    };
+    attemptSend(0);
   });
 }
 
@@ -186,6 +185,9 @@ async function loadShowsList() {
             <div class="muted small" style="margin-top:4px">${reviewPreview}</div>
             <div class="muted small" style="margin-top:4px">📝 ${annCount} annotation${annCount !== 1 ? 's' : ''}</div>
           </div>
+          <div style="margin-left:8px;display:flex;flex-direction:column;align-items:flex-end">
+            <button class="danger show-delete-btn" data-id="${show.id}" title="Remove show" style="padding:6px 8px;font-size:12px">✕</button>
+          </div>
         </div>
       `;
       
@@ -200,6 +202,26 @@ async function loadShowsList() {
       el.addEventListener('mouseleave', () => {
         el.style.background = 'rgba(255,255,255,0.03)';
       });
+
+      // Delete button handling
+      const delBtn = el.querySelector('.show-delete-btn');
+      if (delBtn) {
+        delBtn.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          if (!confirm(`Delete "${show.title}" from your journal?`)) return;
+          try {
+            await Journal.deleteShow(show.id);
+            // If the deleted show was open in the entry view, go back to list
+            if (currentShow && currentShow.id === show.id) {
+              currentShow = null;
+            }
+            loadShowsList();
+          } catch (err) {
+            console.error('[popup] delete show failed:', err && err.message);
+            alert('Error deleting show: ' + (err && err.message ? err.message : 'unknown'));
+          }
+        });
+      }
       
       container.appendChild(el);
     });
@@ -437,6 +459,22 @@ function initializePopup() {
     });
   }
 
+  // ---- Show User ID Button ----
+  const showUidBtn = document.getElementById('btn-show-uid');
+  const uidDisplay = document.getElementById('uid-display');
+  if (showUidBtn && uidDisplay) {
+    showUidBtn.addEventListener('click', () => {
+      uidDisplay.textContent = 'Loading...';
+      chrome.runtime.sendMessage({ action: 'getFirebaseUid' }, (response) => {
+        if (response && response.uid) {
+          uidDisplay.textContent = response.uid;
+        } else {
+          uidDisplay.textContent = 'UID not available';
+        }
+      });
+    });
+  }
+
   // ---- Playback Control Buttons ----
   const playBtn = document.getElementById('btn-play');
   if (playBtn) {
@@ -456,14 +494,6 @@ function initializePopup() {
     });
   }
 
-  const subToggleBtn = document.getElementById('btn-sub-toggle');
-  if (subToggleBtn) {
-    subToggleBtn.addEventListener('click', async () => {
-      const tab = await queryActive();
-      if (!tab) return;
-      await sendToContent(tab.id, { type: 'sub-toggle' });
-    });
-  }
 
   // ---- Refresh When Popup Opened Again ----
   document.addEventListener('visibilitychange', () => {

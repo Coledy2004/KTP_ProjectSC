@@ -2,13 +2,8 @@
 // This file is an ES module and expects to be imported with `type="module"` scripts
 // (e.g. `import { sendTimestampEvent, listenForFriendTimestamps } from './firebase-config.js'`).
 
-import { initializeApp } from './vendor/firebase-app.js';
-
-// Firestore imports are loaded dynamically at runtime to avoid forcing the
-// background service worker to fetch or evaluate large vendor bundles at
-// module-evaluation time. This keeps the SW registration resilient; if the
-// local Firestore bundle isn't present the dynamic import will fail at the
-// moment a Firestore helper is used, which we handle in callers.
+// All vendor imports are lazy-loaded at runtime to avoid blocking service worker startup
+// if vendor bundles aren't present yet.
 
 // Your Firebase config — you provided the apiKey earlier. I've filled likely values
 // based on your project id. If any value is incorrect, replace it with the exact
@@ -23,19 +18,51 @@ export const firebaseConfig = {
   measurementId: "G-YZBHSWWQMM"
 };
 
-// Initialize Firebase app. Firestore (db) is created lazily by `ensureDb()`
-const app = initializeApp(firebaseConfig);
+// Firebase app and db are created lazily when first needed
+let app = null;
 let db = null;
+let initPromise = null;
+
+async function ensureApp() {
+  if (app) return app;
+  if (initPromise) return initPromise;
+  
+  initPromise = (async () => {
+    try {
+      const appMod = await import('./vendor/firebase-app.js');
+      const { initializeApp } = appMod;
+      app = initializeApp(firebaseConfig);
+      console.log('[firebase-config] App initialized');
+      return app;
+    } catch (e) {
+      console.warn('[firebase-config] Failed to initialize app:', e?.message);
+      return null;
+    }
+  })();
+  
+  return initPromise;
+}
 
 async function ensureDb() {
   if (db) return db;
-  // Dynamically import the local Firestore vendor bundle. If the file is
-  // missing or not a full SDK, this will reject and callers should handle it.
-  const fs = await import('./vendor/firebase-firestore.js');
-  db = fs.getFirestore(app);
-  // also keep commonly used helpers on the db module for convenience
-  db.__helpers = fs;
-  return db;
+  
+  try {
+    const appInstance = await ensureApp();
+    if (!appInstance) {
+      console.warn('[firebase-config] Cannot create db without app');
+      return null;
+    }
+    
+    const fs = await import('./vendor/firebase-firestore.js');
+    const { getFirestore } = fs;
+    db = getFirestore(appInstance);
+    db.__helpers = fs;
+    console.log('[firebase-config] Firestore initialized');
+    return db;
+  } catch (e) {
+    console.warn('[firebase-config] Failed to initialize Firestore:', e?.message);
+    return null;
+  }
 }
 
 /**
