@@ -1,5 +1,6 @@
 // background service worker (Manifest V3)
 import { listenForAllFriendTimestamps, sendTimestampEvent } from './firebase-config.js';
+import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
 
 // Ensure service worker stays live when possible: log lifecycle events
 self.addEventListener('install', (event) => {
@@ -20,6 +21,31 @@ function formatTime(sec) {
 }
 
 let unsubAll = null;
+
+// Track current user UID
+let currentFirebaseUid = null;
+
+// Initialize Firebase Auth and sign in anonymously if needed
+const auth = getAuth();
+onAuthStateChanged(auth, (user) => {
+  if (user) {
+    currentFirebaseUid = user.uid;
+    console.log('[background] Firebase UID:', user.uid);
+  } else {
+    currentFirebaseUid = null;
+    // Try to sign in anonymously
+    signInAnonymously(auth)
+      .then((result) => {
+        if (result.user) {
+          currentFirebaseUid = result.user.uid;
+          console.log('[background] Signed in anonymously, UID:', result.user.uid);
+        }
+      })
+      .catch((error) => {
+        console.warn('[background] Anonymous sign-in failed:', error?.message);
+      });
+  }
+});
 
 async function startBackgroundListeners() {
   // Load friend list from storage. If missing, listen to all timestamps.
@@ -66,6 +92,11 @@ startBackgroundListeners();
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message && message.type === 'ping') {
     sendResponse({msg: 'pong from background'});
+  }
+  // Handle UID request from popup
+  if (message && message.action === 'getFirebaseUid') {
+    sendResponse({uid: currentFirebaseUid || null});
+    return true;
   }
   
   // Handle comment saves from popup via Firebase

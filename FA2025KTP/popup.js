@@ -240,6 +240,22 @@ function initializePopup() {
   // Initial load
   updateNowWatching();
   loadComments();
+
+  // ---- Show My UID Button ----
+  const showUidBtn = document.getElementById('show-uid');
+  const uidDisplay = document.getElementById('uid-display');
+  if (showUidBtn && uidDisplay) {
+    showUidBtn.addEventListener('click', () => {
+      uidDisplay.textContent = 'Loading...';
+      chrome.runtime.sendMessage({ action: 'getFirebaseUid' }, (response) => {
+        if (response && response.uid) {
+          uidDisplay.textContent = 'Your Firebase UID: ' + response.uid;
+        } else {
+          uidDisplay.textContent = 'UID not available (not signed in)';
+        }
+      });
+    });
+  }
   
   // ---- Play Button ----
   const playBtn = document.getElementById('btn-play');
