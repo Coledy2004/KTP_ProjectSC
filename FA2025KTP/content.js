@@ -15,10 +15,13 @@ try {
         const episode = getEpisodeNow();
         console.log('[content-KTP] Responding with title:', title);
         sendResponse({ title, episode });
+        return true;
       } 
       else if (msg?.type === 'query-current-time') {
         const video = getVideoElement();
+        console.log('[content-KTP] Responding with currentTime:', video?.currentTime);
         sendResponse({ currentTime: video ? video.currentTime : null });
+        return true;
       } 
       else if (msg?.type === 'debug-title-candidates') {
         const candidates = [];
@@ -70,32 +73,43 @@ try {
         } catch (err) {
           candidates.push({ source: 'error', text: String(err) });
         }
+        console.log('[content-KTP] Responding with', candidates.length, 'candidates');
         sendResponse({ candidates });
+        return true;
       } 
       else if (msg?.type === 'play') {
         const video = getVideoElement();
         if (video) {
           video.play().catch(e => console.warn('[content-KTP] play() error:', e?.message));
         }
+        console.log('[content-KTP] Responding to play request');
         sendResponse({ ok: !!video });
+        return true;
       } 
       else if (msg?.type === 'pause') {
         const video = getVideoElement();
         if (video) video.pause();
+        console.log('[content-KTP] Responding to pause request');
         sendResponse({ ok: !!video });
+        return true;
       } 
       else if (msg?.type === 'sub-toggle') {
+        console.log('[content-KTP] Responding to sub-toggle request');
         sendResponse({ ok: toggleSubs() });
+        return true;
       }
       else {
         console.log('[content-KTP] Unknown message type:', msg?.type);
         sendResponse({ error: 'unknown type' });
+        return true;
       }
     } catch (err) {
       console.error('[content-KTP] Handler error:', err?.message);
       sendResponse({ error: err?.message });
+      return true;
     }
   });
+  console.log('[content-KTP] Message listener registered successfully');
   console.log('[content-KTP] Message listener registered successfully ');
 } catch (err) {
   console.error('[content-KTP] Failed to register listener:', err?.message);
@@ -169,7 +183,10 @@ function getTitleNow() {
 }
 
 function cleanupTitle(raw) {
-  return raw.replace(/\s*\|\s*Netflix$/i, '').replace(/\s*-\s*Netflix$/i, '').trim();
+  let cleaned = raw.replace(/\s*\|\s*Netflix$/i, '').replace(/\s*-\s*Netflix$/i, '').trim();
+  // Remove leading time format (HH:MM:SS or MM:SS) that Netflix sometimes shows
+  cleaned = cleaned.replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s+/, '').trim();
+  return cleaned;
 }
 
 // Returns true if element is likely visible to the user

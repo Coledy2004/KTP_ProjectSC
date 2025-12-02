@@ -1,8 +1,7 @@
-// Minimal local shim for Firebase Auth used when the real vendor bundle
-// isn't available locally. This provides getAuth, onAuthStateChanged and
-// signInAnonymously so the background can operate in local/fallback mode.
-
-const listeners = new Set();
+/**
+ * DEPRECATED: Firebase auth shim removed.
+ * This file is kept for reference but Firebase has been removed from the extension.
+ */
 
 function _notify(user) {
   // call listeners asynchronously

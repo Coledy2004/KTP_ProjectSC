@@ -28,11 +28,11 @@ async function ensureContentScript(tabId) {
     return false;
   }
 }
-async function sendToContent(tabId, msg, retries = 3) {
+async function sendToContent(tabId, msg, retries = 5) {
   return new Promise((resolve) => {
     const attemptSend = (attempt = 0) => {
       try {
-        console.log('[popup] sending message to tab', tabId, ':', msg.type, '(attempt', attempt + 1, ')');
+        console.log('[popup] sending message to tab', tabId, ':', msg.type, '(attempt', attempt + 1, 'of', retries + 1, ')');
         chrome.tabs.sendMessage(tabId, msg, (response) => {
           if (chrome.runtime.lastError) {
             const errMsg = chrome.runtime.lastError.message || '';
@@ -41,22 +41,32 @@ async function sendToContent(tabId, msg, retries = 3) {
             // If receiving end does not exist, retry or inject
             if ((errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection')) && attempt < retries) {
               console.log('[popup] retrying message send (attempt', attempt + 1, 'of', retries, ')...');
-              setTimeout(() => attemptSend(attempt + 1), 300 + (attempt * 200));
+              // Increase delay for each retry: 500ms, 1s, 1.5s, 2s, 2.5s
+              const delayMs = 500 + (attempt * 500);
+              setTimeout(() => attemptSend(attempt + 1), delayMs);
               return;
             }
 
-            // If still failing after retries, try injecting the content script once
-            if (attempt === 0 && (errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection'))) {
-              console.log('[popup] detected missing content script, attempting injection...');
+            // If still failing after some retries, try injecting the content script once
+            if (attempt === 2 && (errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection'))) {
+              console.log('[popup] detected missing content script after retries, attempting injection...');
               ensureContentScript(tabId).then((ok) => {
                 if (!ok) {
                   console.warn('[popup] injection failed, cannot contact content script');
                   resolve(null);
                   return;
                 }
-                // Retry after injection
-                setTimeout(() => attemptSend(attempt + 1), 500);
+                console.log('[popup] injection succeeded, retrying message send...');
+                // Retry after injection with longer delay
+                setTimeout(() => attemptSend(attempt + 1), 1000);
               });
+              return;
+            }
+
+            // Give up after all retries
+            if (attempt >= retries) {
+              console.warn('[popup] exhausted retries, giving up');
+              resolve(null);
               return;
             }
 
@@ -368,6 +378,36 @@ function initializePopup() {
     });
   }
 
+  // ---- Refresh Title Button ----
+  const refreshBtn = document.getElementById('btn-refresh-title');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.textContent = '⏳';
+      refreshBtn.disabled = true;
+      try {
+        const tab = await queryActive();
+        if (!tab) {
+          alert('No active tab');
+          return;
+        }
+        const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
+        console.log('[popup] refresh-title response:', resp);
+        if (resp && resp.title) {
+          document.getElementById('movie-title').textContent = resp.title;
+          document.getElementById('movie-episode').textContent = resp.episode || '(episode info not detected)';
+          nowWatchingTitle = resp.title;
+        } else {
+          document.getElementById('movie-title').textContent = 'Could not refresh';
+        }
+      } catch (e) {
+        console.error('[popup] refresh-title error:', e);
+      } finally {
+        refreshBtn.textContent = '🔄';
+        refreshBtn.disabled = false;
+      }
+    });
+  }
+
   // ---- Back to Journal Button ----
   const backBtn = document.getElementById('btn-back-to-journal');
   if (backBtn) {
@@ -460,20 +500,7 @@ function initializePopup() {
   }
 
   // ---- Show User ID Button ----
-  const showUidBtn = document.getElementById('btn-show-uid');
-  const uidDisplay = document.getElementById('uid-display');
-  if (showUidBtn && uidDisplay) {
-    showUidBtn.addEventListener('click', () => {
-      uidDisplay.textContent = 'Loading...';
-      chrome.runtime.sendMessage({ action: 'getFirebaseUid' }, (response) => {
-        if (response && response.uid) {
-          uidDisplay.textContent = response.uid;
-        } else {
-          uidDisplay.textContent = 'UID not available';
-        }
-      });
-    });
-  }
+  // (Firebase removed) no UID button wiring
 
   // ---- Playback Control Buttons ----
   const playBtn = document.getElementById('btn-play');

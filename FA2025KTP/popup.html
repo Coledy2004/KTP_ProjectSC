@@ -71,7 +71,10 @@
     <!-- Now Watching / Add to Journal -->
     <div class="card" id="now-watching-card">
       <div class="small muted">Now watching</div>
-      <div class="show-title-display" id="movie-title">—</div>
+      <div style="display:flex;gap:8px;align-items:flex-start">
+        <div class="show-title-display" id="movie-title" style="flex:1">—</div>
+        <button id="btn-refresh-title" class="secondary" style="padding:4px 8px;font-size:12px;margin-top:2px" title="Refresh title">🔄</button>
+      </div>
       <div class="muted" id="movie-episode" style="margin-top:4px">Not detected</div>
       <button id="btn-add-to-journal" style="margin-top:10px;width:100%">+ Add to Journal</button>
       <div style="margin-top:8px;display:flex;gap:8px">
@@ -142,8 +145,6 @@
 
   <div class="footer">
     <div style="margin-bottom:8px">KTP • Movie Journal — Enjoy annotating your shows!</div>
-    <button id="btn-show-uid" class="secondary" style="padding:4px 8px;font-size:11px;width:100%">Show User ID</button>
-    <div id="uid-display" class="muted small" style="margin-top:6px;text-align:center;min-height:16px"></div>
   </div>
 
   <script type="module" src="popup.js"></script>
