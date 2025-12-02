@@ -1,63 +1,83 @@
 // ================================================================================
-// POPUP.JS - Netflix KTP Extension Popup Handler
-// Firebase Firestore for real-time comment sharing with friends
-// Local Storage as fallback
+// POPUP.JS - Personal Movie/Show Journal
+// Local-only storage, no cloud sync, no friends sharing
 // ================================================================================
 
+import * as Journal from './show-journal.js';
+
+// State
+let currentShow = null; // Currently selected show for viewing/editing
+let nowWatchingTitle = null; // Currently detected show on Netflix
+
 // ---- Utility Functions ----
-function formatTime(seconds) {
-  if (!isFinite(seconds)) return '?';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s < 10 ? '0' : ''}${s}`;
-}
 
 async function queryActive() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   return tabs[0] || null;
 }
 
+// Ensure the content script is present in a tab by injecting it if needed
+async function ensureContentScript(tabId) {
+  try {
+    console.log('[popup] injecting content script into tab', tabId);
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    console.log('[popup] injection complete');
+    return true;
+  } catch (err) {
+    console.warn('[popup] injection failed:', err && err.message);
+    return false;
+  }
+}
 async function sendToContent(tabId, msg) {
   return new Promise((resolve) => {
     try {
+      console.log('[popup] sending message to tab', tabId, ':', msg.type);
       chrome.tabs.sendMessage(tabId, msg, (response) => {
         if (chrome.runtime.lastError) {
-          console.warn('[popup] sendMessage runtime error:', chrome.runtime.lastError.message);
+          const errMsg = chrome.runtime.lastError.message || '';
+          console.warn('[popup] sendMessage runtime error:', errMsg);
+
+          // If receiving end does not exist, try to inject the content script and retry once
+          if (errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection')) {
+            console.log('[popup] detected missing content script, attempting injection...');
+            ensureContentScript(tabId).then((ok) => {
+              if (!ok) {
+                console.warn('[popup] injection failed, cannot contact content script');
+                resolve(null);
+                return;
+              }
+
+              // Small delay to allow the injected script to register its listener
+              setTimeout(() => {
+                chrome.tabs.sendMessage(tabId, msg, (response2) => {
+                  if (chrome.runtime.lastError) {
+                    console.warn('[popup] retry sendMessage failed:', chrome.runtime.lastError.message);
+                    resolve(null);
+                  } else {
+                    console.log('[popup] got response (retry):', response2);
+                    resolve(response2);
+                  }
+                });
+              }, 250);
+            });
+            return;
+          }
+
           resolve(null);
         } else {
+          console.log('[popup] got response:', response);
           resolve(response);
         }
       });
     } catch (e) {
-      console.warn('[popup] sendMessage failed:', e && e.message);
+      console.warn('[popup] sendMessage exception:', e && e.message);
       resolve(null);
     }
   });
 }
 
-// ---- Firebase Setup ----
-let firebaseReady = false;
-let firebaseAuth = null;
-let firebaseDb = null;
-let currentUserId = null;
-let activeListeners = {}; // Track listeners by movieKey
-
-async function initFirebase() {
-  if (firebaseReady) return;
-  
-  try {
-    // For popup, use a simplified approach - just rely on message passing to background
-    // The background service worker handles Firebase, popup just shows results
-    firebaseReady = true;
-    console.log('[popup] Firebase communication initialized via background');
-    return true;
-  } catch (e) {
-    console.warn('[popup] Firebase init failed:', e && e.message);
-    return false;
-  }
-}
-
 // ---- Update Now Watching Display ----
+
 async function updateNowWatching() {
   console.log('[popup] updateNowWatching called');
   const tab = await queryActive();
@@ -65,223 +85,293 @@ async function updateNowWatching() {
     console.log('[popup] no active tab');
     return;
   }
-  const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
-  console.log('[popup] get-now-watching response:', resp);
-  const titleEl = document.getElementById('movie-title');
-  const epEl = document.getElementById('movie-episode');
-  if (resp && resp.title) {
-    console.log('[popup] setting title to:', resp.title);
-    titleEl.textContent = resp.title;
-    epEl.textContent = resp.episode || '';
-  } else {
-    console.log('[popup] no title in response, setting to default');
-    titleEl.textContent = '—';
-    epEl.textContent = 'Not detected';
-  }
-}
-
-// ---- Movie Key Generation ----
-async function getMovieKey(tab) {
-  // Attempt to get a stable movie id or fallback to URL
-  if (!tab) return 'ktp-comments-global';
-  let meta = await sendToContent(tab.id, { type: 'get-now-watching' });
-  const id = (meta && meta.title) ? meta.title.replace(/\s+/g, '_') : encodeURIComponent(tab.url || 'global');
-  return `ktp-comments-${id}`;
-}
-
-// ---- Load & Render Comments (Firebase + Local Storage) ----
-async function loadComments() {
-  const tab = await queryActive();
-  if (!tab) return;
-  const container = document.getElementById('comments-list');
-  container.innerHTML = '<div class="muted small">Loading comments...</div>';
   
-  try {
-    const movieKey = await getMovieKey(tab);
-    
-    // Ensure Firebase is ready
-    if (!firebaseReady) {
-      console.log('[popup] Firebase not ready, initializing...');
-      await initFirebase();
-    }
-    
-    // Listen to Firebase for comments
-    if (firebaseReady && firebaseDb) {
-      console.log('[popup] Setting up Firebase listener for:', movieKey);
-      setupFirebaseListener(movieKey, container);
-    } else {
-      console.log('[popup] Firebase unavailable, using local storage only');
-      loadLocalComments(movieKey, container);
-    }
-  } catch (e) {
-    console.warn('[popup] Failed to load comments:', e && e.message);
-    container.innerHTML = '<div class="muted small">Error loading comments</div>';
-    
-    const movieKey = await getMovieKey(tab);
-    loadLocalComments(movieKey, container);
-  }
-}
-
-// ---- Setup Firebase Listener ----
-async function setupFirebaseListener(movieKey, container) {
-  try {
-    // For now, popup uses local storage only
-    // Background service worker syncs from Firebase to local storage
-    // Popup just displays what's in local storage
-    loadLocalComments(movieKey, container);
-    
-    // Set up polling to refresh every 2 seconds
-    setInterval(() => {
-      loadLocalComments(movieKey, container);
-    }, 2000);
-    
-    console.log('[popup] Local storage listener attached for:', movieKey);
-  } catch (e) {
-    console.warn('[popup] Listener setup failed:', e && e.message);
-    loadLocalComments(movieKey, container);
-  }
-}
-
-// ---- Load Local Comments (Fallback) ----
-async function loadLocalComments(movieKey, container) {
-  try {
-    const data = await chrome.storage.local.get([movieKey]);
-    const list = data[movieKey] || [];
-    renderComments(list, container);
-  } catch (e) {
-    console.warn('[popup] Local load failed:', e && e.message);
-    container.innerHTML = '<div class="muted small">Error loading comments</div>';
-  }
-}
-
-// ---- Render Comments ----
-function renderComments(list, container) {
-  if (!list || !list.length) {
-    container.innerHTML = '<div class="muted small">No comments yet. Save a timestamp to start!</div>';
+  console.log('[popup] active tab URL:', tab.url);
+  
+  // Only try to get title if on Netflix
+  if (!tab.url || !tab.url.includes('netflix.com')) {
+    console.log('[popup] not on netflix.com');
+    document.getElementById('movie-title').textContent = '—';
+    document.getElementById('movie-episode').textContent = 'Not on Netflix';
     return;
   }
   
-  container.innerHTML = '';
-  list.forEach((c, idx) => {
-    const el = document.createElement('div');
-    el.style.padding = '10px';
-    el.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
-    el.style.background = c.isRemote ? 'rgba(229,9,20,0.1)' : 'rgba(255,255,255,0.05)';
-    el.style.borderRadius = '4px';
-    el.style.marginBottom = '8px';
-    
-    const createDate = new Date(c.ts || 0);
-    const userLabel = c.userId ? c.userId.substring(0, 10) : 'You';
-    const remoteLabel = c.isRemote ? ' (Friend)' : '';
-    
-    el.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <div style="flex:1">
-          <strong style="color:#e50914">${formatTime(c.time)}</strong>
-          <span class="muted small" style="margin-left:8px;font-size:11px">${userLabel}${remoteLabel}</span>
-          <span class="muted small" style="display:block;margin-top:4px;font-size:10px">${createDate.toLocaleString()}</span>
-        </div>
-      </div>
-      <div class="muted small" style="margin-top:8px;word-break:break-word;font-size:12px">${(c.text || '').replace(/</g, '&lt;')}</div>
-    `;
-    container.appendChild(el);
-  });
+  const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
+  console.log('[popup] get-now-watching response:', resp);
+  
+  const titleEl = document.getElementById('movie-title');
+  const epEl = document.getElementById('movie-episode');
+  
+  if (resp && resp.title) {
+    console.log('[popup] setting title to:', resp.title);
+    nowWatchingTitle = resp.title;
+    titleEl.textContent = resp.title;
+    epEl.textContent = resp.episode || '(episode info not detected)';
+  } else {
+    console.log('[popup] no title in response, setting to default');
+    nowWatchingTitle = null;
+    titleEl.textContent = '—';
+    epEl.textContent = resp ? 'Not playing' : 'Content script not loaded';
+  }
 }
 
-// ---- Save Timestamped Comment ----
-async function saveTimestampedComment(timeSec, text) {
-  const tab = await queryActive();
-  if (!tab) return;
-  const movieKey = await getMovieKey(tab);
+// ---- UI State Management ----
+
+function showJournalList() {
+  currentShow = null;
+  document.getElementById('journal-list-card').style.display = 'block';
+  document.getElementById('journal-entry-card').style.display = 'none';
+  loadShowsList();
+}
+
+function showJournalEntry(show) {
+  currentShow = show;
+  document.getElementById('journal-list-card').style.display = 'none';
+  document.getElementById('journal-entry-card').style.display = 'block';
   
-  // Request persistent extension user id from background
-  let userId = null;
-  try {
-    userId = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({ action: 'getFirebaseUid' }, (resp) => {
-        if (resp && resp.uid) resolve(resp.uid);
-        else resolve(null);
-      });
-    });
-  } catch (e) {
-    console.warn('[popup] Could not get extension UID from background:', e && e.message);
-  }
-  if (!userId) {
-    userId = 'user_' + (Math.random() * 1000).toFixed(0);
-  }
+  // Update UI with show data
+  document.getElementById('journal-show-title').textContent = show.title;
+  document.getElementById('review').value = show.review || '';
+  document.getElementById('annotation-input').value = '';
   
-  // Always save to local storage first (primary storage)
+  loadAnnotations();
+  
+  // Switch to info tab
+  switchTab('info');
+}
+
+function switchTab(tabName) {
+  // Hide all tabs
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+  
+  // Show selected tab
+  document.getElementById(`tab-${tabName}`).style.display = 'block';
+  document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+}
+
+// ---- Load & Render Shows List ----
+
+async function loadShowsList() {
+  const container = document.getElementById('shows-list');
   try {
-    const data = await chrome.storage.local.get([movieKey]);
-    const list = data[movieKey] || [];
-    list.push({ 
-      time: Math.round(timeSec), 
-      text: text || '', 
-      ts: Date.now(), 
-      userId: userId, 
-      isRemote: false 
-    });
+    const journal = await Journal.getJournal();
     
-    const obj = {};
-    obj[movieKey] = list;
-    await chrome.storage.local.set(obj);
-    console.log('[popup] Comment saved to local storage');
-  } catch (e) {
-    console.error('[popup] Local save failed:', e && e.message);
-  }
-  
-  // Try to sync to Firebase via background service worker
-  try {
-    chrome.runtime.sendMessage({
-      action: 'saveCommentToFirebase',
-      movieKey: movieKey,
-      showId: movieKey,
-      userId: userId,
-      timestamp: Math.round(timeSec),
-      note: text || ''
-    }, (response) => {
-      if (response?.success) {
-        console.log('[popup] Comment also synced to Firebase');
-      } else {
-        console.log('[popup] Firebase sync skipped (background unavailable)');
-      }
+    if (!journal || journal.length === 0) {
+      container.innerHTML = '<div class="no-data">No shows yet. Add one above!</div>';
+      return;
+    }
+    
+    // Sort by last modified (most recent first)
+    journal.sort((a, b) => (b.lastModified || 0) - (a.lastModified || 0));
+    
+    container.innerHTML = '';
+    journal.forEach(show => {
+      const el = document.createElement('div');
+      el.style.padding = '10px';
+      el.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+      el.style.cursor = 'pointer';
+      el.style.background = 'rgba(255,255,255,0.03)';
+      el.style.borderRadius = '4px';
+      el.style.marginBottom = '6px';
+      el.style.transition = 'background 0.2s';
+      
+      const reviewPreview = show.review ? show.review.substring(0, 50) + '...' : '(no review)';
+      const annCount = (show.annotations || []).length;
+      
+      el.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1">
+            <strong>${show.title}</strong>
+            <div class="muted small" style="margin-top:4px">${reviewPreview}</div>
+            <div class="muted small" style="margin-top:4px">📝 ${annCount} annotation${annCount !== 1 ? 's' : ''}</div>
+          </div>
+        </div>
+      `;
+      
+      el.addEventListener('click', () => {
+        showJournalEntry(show);
+      });
+      
+      el.addEventListener('mouseenter', () => {
+        el.style.background = 'rgba(255,255,255,0.1)';
+      });
+      
+      el.addEventListener('mouseleave', () => {
+        el.style.background = 'rgba(255,255,255,0.03)';
+      });
+      
+      container.appendChild(el);
     });
   } catch (e) {
-    console.log('[popup] Firebase sync via background failed:', e?.message);
+    console.error('[popup] Failed to load shows:', e?.message);
+    container.innerHTML = '<div class="no-data">Error loading shows</div>';
   }
+}
+
+// ---- Load & Render Annotations ----
+
+async function loadAnnotations() {
+  if (!currentShow) return;
   
-  await loadComments();
+  const container = document.getElementById('annotations-list');
+  try {
+    const annotations = currentShow.annotations || [];
+    
+    if (annotations.length === 0) {
+      container.innerHTML = '<div class="no-data">No annotations yet. Add one below!</div>';
+      return;
+    }
+    
+    container.innerHTML = '';
+    annotations.forEach((ann, idx) => {
+      const el = document.createElement('div');
+      el.className = 'annotation-item';
+      
+      const createdDate = Journal.formatDate(ann.createdDate);
+      
+      el.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="flex:1">
+            <div class="annotation-time">${Journal.formatTime(ann.timestamp)}</div>
+            <div class="annotation-text">${ann.text.replace(/</g, '&lt;')}</div>
+            <div class="annotation-date">${createdDate}</div>
+          </div>
+          <button class="secondary annotation-delete-btn" data-idx="${idx}" style="padding:4px 6px;font-size:11px">✕</button>
+        </div>
+      `;
+      
+      el.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (confirm('Delete this annotation?')) {
+          try {
+            const updated = await Journal.removeAnnotation(currentShow.id, ann.id);
+            currentShow = updated;
+            loadAnnotations();
+          } catch (err) {
+            alert('Error deleting annotation: ' + err.message);
+          }
+        }
+      });
+      
+      container.appendChild(el);
+    });
+  } catch (e) {
+    console.error('[popup] Failed to load annotations:', e?.message);
+    container.innerHTML = '<div class="no-data">Error loading annotations</div>';
+  }
 }
 
 // ---- Initialize Popup (Attach Event Listeners) ----
+
 function initializePopup() {
-  console.log('[popup] initializing...');
-  
-  // Initialize Firebase in background
-  initFirebase().catch(e => console.warn('[popup] Firebase init error:', e));
+  console.log('[popup] initializing journal popup...');
   
   // Initial load
   updateNowWatching();
-  loadComments();
+  showJournalList();
 
-  // ---- Show My UID Button ----
-  const showUidBtn = document.getElementById('show-uid');
-  const uidDisplay = document.getElementById('uid-display');
-  if (showUidBtn && uidDisplay) {
-    showUidBtn.addEventListener('click', () => {
-      uidDisplay.textContent = 'Loading...';
-      chrome.runtime.sendMessage({ action: 'getFirebaseUid' }, (response) => {
-        if (response && response.uid) {
-          uidDisplay.textContent = 'Your Firebase UID: ' + response.uid;
-        } else {
-          uidDisplay.textContent = 'UID not available (not signed in)';
+  // ---- Tab buttons ----
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.getAttribute('data-tab');
+      switchTab(tabName);
+    });
+  });
+
+  // ---- Add to Journal Button ----
+  const addBtn = document.getElementById('btn-add-to-journal');
+  if (addBtn) {
+    addBtn.addEventListener('click', async () => {
+      // Try to ensure we have the latest title from the content script (retry if needed)
+      try {
+        const tab = await queryActive();
+        if (!tab) {
+          alert('No active tab');
+          return;
         }
-      });
+
+        // Ask content script for the current title (sendToContent will auto-inject if missing)
+        const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
+        const title = resp && resp.title ? resp.title : null;
+
+        if (!title) {
+          // Offer manual entry as a fallback
+          const manual = prompt('Could not detect the show title. Enter the title manually:');
+          if (!manual || !manual.trim()) {
+            alert('No title provided');
+            return;
+          }
+          title = manual.trim();
+        }
+
+        // Persist using the detected or manually entered title
+        const show = await Journal.getOrCreateShow(title);
+        showJournalEntry(show);
+        alert(`✓ Added "${show.title}" to your journal!`);
+      } catch (e) {
+        console.error('[popup] add-to-journal error:', e);
+        alert('Error: ' + (e && e.message ? e.message : 'unknown'));
+      }
     });
   }
 
-  // ---- Check Current Time Button (debug) ----
-  const checkTimeBtn = document.getElementById('check-time');
+  // ---- Debug Title Button (shows candidate elements for selector discovery) ----
+  const debugBtn = document.getElementById('btn-debug-title');
+  const debugPre = document.getElementById('debug-results');
+  if (debugBtn && debugPre) {
+    debugBtn.addEventListener('click', async () => {
+      debugPre.style.display = 'block';
+      debugPre.textContent = 'Querying page for title candidates...';
+
+      const tab = await queryActive();
+      if (!tab) {
+        debugPre.textContent = 'No active tab';
+        return;
+      }
+
+      const resp = await sendToContent(tab.id, { type: 'debug-title-candidates' });
+      console.log('[popup] debug-title-candidates response:', resp);
+      if (!resp || !resp.candidates) {
+        debugPre.textContent = 'No response from content script (it may not be loaded). Try opening Netflix and then use the Add to Journal button to auto-inject.';
+        return;
+      }
+
+      try {
+        const out = resp.candidates.map((c, i) => `${i+1}. [${c.source}] ${c.selector ? c.selector : ''}\n   ${c.text ? c.text.replace(/\n/g, ' ') : ''}`).join('\n\n');
+        debugPre.textContent = out || 'No candidates found';
+      } catch (e) {
+        debugPre.textContent = 'Failed to render candidates: ' + (e && e.message);
+      }
+    });
+  }
+
+  // ---- Back to Journal Button ----
+  const backBtn = document.getElementById('btn-back-to-journal');
+  if (backBtn) {
+    backBtn.addEventListener('click', () => {
+      showJournalList();
+    });
+  }
+
+  // ---- Save Review Button ----
+  const saveReviewBtn = document.getElementById('btn-save-review');
+  if (saveReviewBtn) {
+    saveReviewBtn.addEventListener('click', async () => {
+      if (!currentShow) return;
+      try {
+        const reviewText = document.getElementById('review').value;
+        const updated = await Journal.updateShowReview(currentShow.id, reviewText);
+        currentShow = updated;
+        alert('✓ Review saved!');
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    });
+  }
+
+  // ---- Check Current Time Button ----
+  const checkTimeBtn = document.getElementById('btn-check-time');
   const timeDisplay = document.getElementById('time-display');
   if (checkTimeBtn && timeDisplay) {
     checkTimeBtn.addEventListener('click', async () => {
@@ -294,122 +384,100 @@ function initializePopup() {
       const resp = await sendToContent(tab.id, { type: 'query-current-time' });
       console.log('[popup] check-time response:', resp);
       if (!resp) {
-        timeDisplay.textContent = 'No response from content script';
+        timeDisplay.textContent = 'No response from Netflix';
       } else if (typeof resp.currentTime === 'number') {
-        timeDisplay.textContent = 'Current time: ' + formatTime(resp.currentTime) + ' (' + resp.currentTime + 's)';
+        timeDisplay.textContent = `⏱ ${Journal.formatTime(resp.currentTime)} (${resp.currentTime.toFixed(1)}s)`;
       } else {
-        timeDisplay.textContent = 'Invalid response: ' + JSON.stringify(resp);
+        timeDisplay.textContent = 'Could not get current time';
       }
     });
   }
-  
-  // ---- Play Button ----
+
+  // ---- Add Annotation Button ----
+  const addAnnotationBtn = document.getElementById('btn-add-annotation');
+  if (addAnnotationBtn) {
+    addAnnotationBtn.addEventListener('click', async () => {
+      if (!currentShow) return;
+      
+      const tab = await queryActive();
+      if (!tab) {
+        alert('No active tab');
+        return;
+      }
+      
+      const resp = await sendToContent(tab.id, { type: 'query-current-time' });
+      if (!resp || typeof resp.currentTime !== 'number') {
+        alert('Could not read current time from Netflix');
+        return;
+      }
+      
+      const annotationText = document.getElementById('annotation-input').value;
+      if (!annotationText.trim()) {
+        alert('Please enter a note');
+        return;
+      }
+      
+      try {
+        const updated = await Journal.addAnnotation(currentShow.id, resp.currentTime, annotationText);
+        currentShow = updated;
+        document.getElementById('annotation-input').value = '';
+        loadAnnotations();
+        alert(`✓ Annotation saved at ${Journal.formatTime(resp.currentTime)}!`);
+      } catch (e) {
+        alert('Error: ' + e.message);
+      }
+    });
+  }
+
+  // ---- View All Button ----
+  const viewAllBtn = document.getElementById('btn-view-all');
+  if (viewAllBtn) {
+    viewAllBtn.addEventListener('click', () => {
+      showJournalList();
+    });
+  }
+
+  // ---- Playback Control Buttons ----
   const playBtn = document.getElementById('btn-play');
   if (playBtn) {
     playBtn.addEventListener('click', async () => {
-      console.log('[popup] play clicked');
       const tab = await queryActive();
       if (!tab) return;
-      const resp = await sendToContent(tab.id, { type: 'play' });
-      console.log('[popup] play response:', resp);
+      await sendToContent(tab.id, { type: 'play' });
     });
   }
-  
-  // ---- Pause Button ----
+
   const pauseBtn = document.getElementById('btn-pause');
   if (pauseBtn) {
     pauseBtn.addEventListener('click', async () => {
-      console.log('[popup] pause clicked');
       const tab = await queryActive();
       if (!tab) return;
-      const resp = await sendToContent(tab.id, { type: 'pause' });
-      console.log('[popup] pause response:', resp);
+      await sendToContent(tab.id, { type: 'pause' });
     });
   }
-  
-  // ---- Subtitle Toggle Button ----
+
   const subToggleBtn = document.getElementById('btn-sub-toggle');
   if (subToggleBtn) {
     subToggleBtn.addEventListener('click', async () => {
-      console.log('[popup] sub-toggle clicked');
       const tab = await queryActive();
       if (!tab) return;
       await sendToContent(tab.id, { type: 'sub-toggle' });
     });
   }
-  
-  // ---- Subtitle Next Button ----
-  const subNextBtn = document.getElementById('btn-sub-next');
-  if (subNextBtn) {
-    subNextBtn.addEventListener('click', async () => {
-      console.log('[popup] sub-next clicked');
-      const tab = await queryActive();
-      if (!tab) return;
-      await sendToContent(tab.id, { type: 'sub-next' });
-    });
-  }
-  
-  // ---- Save Note Button ----
-  const saveNoteBtn = document.getElementById('save-note');
-  if (saveNoteBtn) {
-    saveNoteBtn.addEventListener('click', async () => {
-      console.log('[popup] save-note clicked');
-      const note = document.getElementById('note').value || '';
-      const tab = await queryActive();
-      if (!tab) return alert('No active tab');
-      const key = 'notes-' + tab.id;
-      const storageObj = {};
-      storageObj[key] = (note && note.length) ? { text: note, ts: Date.now() } : '';
-      await chrome.storage.local.set(storageObj);
-      alert('Note saved locally');
-    });
-  }
-  
-  // ---- Save Timestamped Comment Button ----
-  const saveTimestampBtn = document.getElementById('save-timestamp');
-  if (saveTimestampBtn) {
-    saveTimestampBtn.addEventListener('click', async () => {
-      console.log('[popup] save-timestamp clicked');
-      const tab = await queryActive();
-      if (!tab) return alert('No active tab');
-      const resp = await sendToContent(tab.id, { type: 'query-current-time' });
-      if (!resp || typeof resp.currentTime !== 'number') return alert('Could not read current time');
-      const text = document.getElementById('note').value || '';
-      await saveTimestampedComment(resp.currentTime, text);
-      document.getElementById('note').value = '';
-      alert('✓ Comment saved and shared with friends!');
-    });
-  }
-  
-  // ---- Inspect Frames Button ----
-  const inspectBtn = document.getElementById('inspect-frames');
-  if (inspectBtn) {
-    inspectBtn.addEventListener('click', async () => {
-      console.log('[popup] inspect-frames clicked');
-      const tab = await queryActive();
-      if (!tab) return;
-      await sendToContent(tab.id, { type: 'inspect-frames' });
-    });
-  }
-  
-  // ---- Open Settings Button ----
-  const settingsBtn = document.getElementById('open-settings');
-  if (settingsBtn) {
-    settingsBtn.addEventListener('click', () => {
-      console.log('[popup] open-settings clicked');
-      chrome.tabs.create({ url: 'options.html' });
-    });
-  }
-  
+
   // ---- Refresh When Popup Opened Again ----
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       console.log('[popup] popup reopened, refreshing...');
       updateNowWatching();
-      loadComments();
+      if (!currentShow) {
+        loadShowsList();
+      } else {
+        loadAnnotations();
+      }
     }
   });
-  
+
   console.log('[popup] initialization complete');
 }
 
@@ -419,14 +487,6 @@ if (document.readyState === 'loading') {
 } else {
   initializePopup();
 }
-
-// ---- Listen for Content Script Updates ----
-chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg && msg.type === 'now-watching-updated') {
-    console.log('[popup] received now-watching-updated message');
-    updateNowWatching();
-  }
-});
 
 console.log('[popup] script loaded, waiting for DOM...');
 

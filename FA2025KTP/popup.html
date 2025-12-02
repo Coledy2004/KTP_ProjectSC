@@ -3,95 +3,139 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>KTP — Netflix Tools</title>
+  <title>KTP — Movie Journal</title>
   <style>
     :root{
       --bg:#141414; /* Netflix dark */
       --accent:#e50914; /* Netflix red */
       --muted:#b3b3b3;
       --card:#1f1f1f;
+      --success:#31a24c;
     }
-    html,body{margin:0;padding:0;font-family:Inter, Arial, sans-serif;background:var(--bg);color:#fff;width:380px}
-    .header{display:flex;align-items:center;gap:10px;padding:14px}
+    * {
+      box-sizing: border-box;
+    }
+    html,body{margin:0;padding:0;font-family:Inter, Arial, sans-serif;background:var(--bg);color:#fff;width:500px;height:auto;overflow-y:auto}
+    .header{display:flex;align-items:center;gap:10px;padding:14px;border-bottom:1px solid rgba(255,255,255,0.1)}
     .logo{font-weight:800;color:var(--accent);font-size:20px}
     .subtitle{color:var(--muted);font-size:12px}
     .content{padding:12px;display:grid;grid-template-columns:1fr;gap:10px}
-    .card{background:var(--card);padding:10px;border-radius:8px}
+    .card{background:var(--card);padding:12px;border-radius:8px}
     .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    button, .btn{background:var(--accent);color:#fff;border:none;padding:8px 10px;border-radius:6px;cursor:pointer}
-    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.08)}
-    input[type="text"], textarea{width:100%;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.06);background:#0f0f0f;color:#fff}
-    label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+    button, .btn{background:var(--accent);color:#fff;border:none;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;transition:background 0.2s}
+    button:hover{background:rgba(229,9,20,0.8)}
+    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.2)}
+    button.secondary:hover{background:rgba(255,255,255,0.05)}
+    button.danger{background:#c41e3a}
+    button.danger:hover{background:#a01828}
+    input[type="text"], textarea{width:100%;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:#0f0f0f;color:#fff;font-family:inherit;font-size:13px}
+    input[type="text"]:focus, textarea:focus{outline:none;border-color:var(--accent)}
+    label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px;font-weight:500}
     .title{font-weight:700;font-size:14px}
     .muted{color:var(--muted);font-size:12px}
     .small{font-size:12px}
-    .footer{padding:12px;text-align:center;color:var(--muted);font-size:12px}
+    .footer{padding:12px;text-align:center;color:var(--muted);font-size:11px;border-top:1px solid rgba(255,255,255,0.1)}
+    
+    /* Journal-specific styles */
+    .show-title-display{font-size:16px;font-weight:700;color:var(--accent);margin-bottom:8px}
+    .annotation-item{background:rgba(255,255,255,0.05);padding:10px;border-radius:6px;margin-bottom:8px;border-left:3px solid var(--accent)}
+    .annotation-time{color:var(--accent);font-weight:700;font-size:13px}
+    .annotation-text{color:#fff;font-size:12px;margin-top:4px;word-break:break-word}
+    .annotation-date{color:var(--muted);font-size:10px;margin-top:4px}
+    .no-data{color:var(--muted);font-style:italic;font-size:12px;padding:10px;text-align:center}
+    .list-container{max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.3);border-radius:6px;padding:8px}
+    .tab-buttons{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+    .tab-btn{padding:6px 12px;font-size:12px;border-radius:4px;cursor:pointer;background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--muted);transition:all 0.2s}
+    .tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .text-success{color:var(--success)}
+    .margin-top{margin-top:10px}
+    .flex-gap{display:flex;gap:8px}
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="logo">KTP</div>
+    <div class="logo">📖</div>
     <div>
-      <div class="title">Netflix Tools</div>
-      <div class="subtitle">Quick actions while watching</div>
+      <div class="title">Movie Journal</div>
+      <div class="subtitle">Track & annotate your shows</div>
     </div>
   </div>
 
   <div class="content">
-    <div class="card" id="now-watching">
+    <!-- Now Watching / Add to Journal -->
+    <div class="card" id="now-watching-card">
       <div class="small muted">Now watching</div>
-      <div class="title" id="movie-title">—</div>
-      <div class="muted" id="movie-episode" style="margin-top:6px">Not detected</div>
+      <div class="show-title-display" id="movie-title">—</div>
+      <div class="muted" id="movie-episode" style="margin-top:4px">Not detected</div>
+      <button id="btn-add-to-journal" style="margin-top:10px;width:100%">+ Add to Journal</button>
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button id="btn-debug-title" class="secondary" style="flex:1;padding:6px;font-size:12px">🔍 Debug title</button>
+      </div>
+      <pre id="debug-results" style="display:none;margin-top:8px;padding:8px;background:#0b0b0b;border-radius:6px;color:var(--muted);font-size:11px;max-height:180px;overflow:auto"></pre>
     </div>
 
-    <div class="card">
-      <div class="row" style="align-items:center">
-        <div>
-          <div class="small muted">Playback controls</div>
-          <div class="muted small">Send simple commands to the page</div>
+    <!-- Journal Entry View (shown when show is selected) -->
+    <div class="card" id="journal-entry-card" style="display:none">
+      <!-- Tab buttons -->
+      <div class="tab-buttons">
+        <button class="tab-btn active" data-tab="info">Info & Review</button>
+        <button class="tab-btn" data-tab="annotations">Annotations</button>
+      </div>
+
+      <!-- Info & Review Tab -->
+      <div id="tab-info" class="tab-content">
+        <div class="small muted">Show title</div>
+        <div class="show-title-display" id="journal-show-title">—</div>
+        
+        <label for="review" style="margin-top:12px">Review (optional)</label>
+        <textarea id="review" rows="3" placeholder="What did you think of this show?"></textarea>
+        <button id="btn-save-review" style="margin-top:8px">Save Review</button>
+
+        <div style="margin-top:12px">
+          <label>Add annotation at current timestamp</label>
+          <textarea id="annotation-input" rows="2" placeholder="Your note about this moment..."></textarea>
+          <div class="flex-gap" style="margin-top:8px">
+            <button id="btn-add-annotation" style="flex:1">Add Annotation</button>
+            <button id="btn-check-time" class="secondary" style="flex:1">Current Time</button>
+          </div>
+          <div id="time-display" class="muted small" style="margin-top:4px"></div>
         </div>
-        <div style="display:flex;gap:6px">
-          <button id="btn-play">Play</button>
-          <button id="btn-pause" class="secondary">Pause</button>
+      </div>
+
+      <!-- Annotations Tab -->
+      <div id="tab-annotations" class="tab-content" style="display:none">
+        <div class="small muted">Annotations for this show</div>
+        <div class="list-container" id="annotations-list">
+          <div class="no-data">Loading annotations...</div>
         </div>
       </div>
+
+      <button id="btn-back-to-journal" class="secondary" style="margin-top:12px;width:100%">← Back to Journal</button>
     </div>
 
-    <div class="card">
-      <div class="small muted">Subtitles / Audio</div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button id="btn-sub-toggle" class="secondary">Toggle Subtitles</button>
-        <button id="btn-sub-next" class="secondary">Next Subtitle</button>
+    <!-- Journal List View -->
+    <div class="card" id="journal-list-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="title">Your Shows</div>
+        <button id="btn-view-all" class="secondary" style="padding:4px 8px;font-size:11px">View All</button>
+      </div>
+      <div class="list-container" id="shows-list">
+        <div class="no-data">No shows yet. Add one above!</div>
       </div>
     </div>
 
+    <!-- Playback Controls (optional) -->
     <div class="card">
-      <label for="note">Quick note</label>
-      <textarea id="note" rows="3" placeholder="Jot a note about this scene..."></textarea>
-      <div style="display:flex;gap:8px;margin-top:8px;justify-content:flex-end">
-        <button id="save-note">Save</button>
-        <button id="save-timestamp" class="secondary">Save at timestamp</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="small muted">Advanced</div>
-      <div style="margin-top:8px">
-        <div class="small muted">Comments for this title</div>
-        <div id="comments-list" style="margin-top:8px;max-height:160px;overflow:auto"></div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-        <button id="inspect-frames" class="secondary">Inspect Frames</button>
-        <button id="open-settings" class="secondary">Open Settings</button>
-        <button id="show-uid" class="secondary">Show My UID</button>
-        <button id="check-time" class="secondary">Check Current Time</button>
-        <div id="uid-display" class="muted small" style="word-break:break-all;margin-top:4px"></div>
-        <div id="time-display" class="muted small" style="word-break:break-all;margin-top:4px"></div>
+      <div class="small muted">Playback</div>
+      <div class="flex-gap" style="margin-top:8px">
+        <button id="btn-play" class="secondary">▶ Play</button>
+        <button id="btn-pause" class="secondary">⏸ Pause</button>
+        <button id="btn-sub-toggle" class="secondary">◼ Subtitles</button>
       </div>
     </div>
   </div>
 
-  <div class="footer">KTP • Netflix Tools — prototype</div>
+  <div class="footer">KTP • Movie Journal — Enjoy annotating your shows!</div>
 
   <script type="module" src="popup.js"></script>
 </body>
