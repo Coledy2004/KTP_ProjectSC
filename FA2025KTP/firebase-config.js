@@ -2,18 +2,13 @@
 // This file is an ES module and expects to be imported with `type="module"` scripts
 // (e.g. `import { sendTimestampEvent, listenForFriendTimestamps } from './firebase-config.js'`).
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
-import {
-  getFirestore,
-  collection,
-  collectionGroup,
-  addDoc,
-  query,
-  where,
-  orderBy,
-  serverTimestamp,
-  onSnapshot,
-} from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+import { initializeApp } from './vendor/firebase-app.js';
+
+// Firestore imports are loaded dynamically at runtime to avoid forcing the
+// background service worker to fetch or evaluate large vendor bundles at
+// module-evaluation time. This keeps the SW registration resilient; if the
+// local Firestore bundle isn't present the dynamic import will fail at the
+// moment a Firestore helper is used, which we handle in callers.
 
 // Your Firebase config — you provided the apiKey earlier. I've filled likely values
 // based on your project id. If any value is incorrect, replace it with the exact
@@ -28,9 +23,20 @@ export const firebaseConfig = {
   measurementId: "G-YZBHSWWQMM"
 };
 
-// Initialize Firebase app and Firestore
+// Initialize Firebase app. Firestore (db) is created lazily by `ensureDb()`
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+let db = null;
+
+async function ensureDb() {
+  if (db) return db;
+  // Dynamically import the local Firestore vendor bundle. If the file is
+  // missing or not a full SDK, this will reject and callers should handle it.
+  const fs = await import('./vendor/firebase-firestore.js');
+  db = fs.getFirestore(app);
+  // also keep commonly used helpers on the db module for convenience
+  db.__helpers = fs;
+  return db;
+}
 
 /**
  * sendTimestampEvent - store a timestamp event for a show
@@ -46,7 +52,11 @@ export async function sendTimestampEvent(showId, userId, timestamp, note = "") {
     throw new Error("sendTimestampEvent requires showId, userId and timestamp");
   }
 
-  const colRef = collection(db, "shows", String(showId), "timestamps");
+  // Lazy-init Firestore; this will throw if the vendor bundle isn't available.
+  const database = await ensureDb();
+  const { collection, addDoc, serverTimestamp } = database.__helpers;
+
+  const colRef = collection(database, "shows", String(showId), "timestamps");
   const payload = {
     showId: String(showId),
     userId: String(userId),
@@ -78,8 +88,11 @@ export function listenForFriendTimestamps(showId, friendIds, onAdded, opts = {})
   const unsubscribers = [];
 
   // helper to attach a query for a chunk of friend ids
-  const attachForChunk = (idsChunk) => {
-    const colRef = collection(db, "shows", String(showId), "timestamps");
+  const attachForChunk = async (idsChunk) => {
+    // Lazy import the Firestore helpers when we actually start listening.
+    const database = await ensureDb();
+    const { collection, query, where, orderBy, onSnapshot } = database.__helpers;
+    const colRef = collection(database, "shows", String(showId), "timestamps");
     let q;
     if (idsChunk.length === 0) {
       // if no friends specified, listen to all timestamps for the show
@@ -130,12 +143,14 @@ export function listenForAllFriendTimestamps(friendIds, onAdded, opts = {}) {
   const limit = opts.limit || 50;
   const unsubscribers = [];
 
-  const attachForChunk = (idsChunk) => {
+  const attachForChunk = async (idsChunk) => {
+    const database = await ensureDb();
+    const { collectionGroup, query, where, orderBy, onSnapshot } = database.__helpers;
     let q;
     if (idsChunk.length === 0) {
-      q = query(collectionGroup(db, "timestamps"), orderBy("createdAt", "desc"));
+      q = query(collectionGroup(database, "timestamps"), orderBy("createdAt", "desc"));
     } else {
-      q = query(collectionGroup(db, "timestamps"), where("userId", "in", idsChunk), orderBy("createdAt", "desc"));
+      q = query(collectionGroup(database, "timestamps"), where("userId", "in", idsChunk), orderBy("createdAt", "desc"));
     }
 
     const unsub = onSnapshot(q, (snapshot) => {
