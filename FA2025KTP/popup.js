@@ -18,12 +18,21 @@ async function queryActive() {
 }
 
 async function sendToContent(tabId, msg) {
-  try {
-    return await chrome.tabs.sendMessage(tabId, msg);
-  } catch (e) {
-    console.warn('[popup] sendMessage failed:', e && e.message);
-    return null;
-  }
+  return new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, msg, (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[popup] sendMessage runtime error:', chrome.runtime.lastError.message);
+          resolve(null);
+        } else {
+          resolve(response);
+        }
+      });
+    } catch (e) {
+      console.warn('[popup] sendMessage failed:', e && e.message);
+      resolve(null);
+    }
+  });
 }
 
 // ---- Firebase Setup ----
@@ -185,7 +194,21 @@ async function saveTimestampedComment(timeSec, text) {
   if (!tab) return;
   const movieKey = await getMovieKey(tab);
   
-  const userId = 'user_' + (Math.random() * 1000).toFixed(0);
+  // Request persistent extension user id from background
+  let userId = null;
+  try {
+    userId = await new Promise((resolve) => {
+      chrome.runtime.sendMessage({ action: 'getFirebaseUid' }, (resp) => {
+        if (resp && resp.uid) resolve(resp.uid);
+        else resolve(null);
+      });
+    });
+  } catch (e) {
+    console.warn('[popup] Could not get extension UID from background:', e && e.message);
+  }
+  if (!userId) {
+    userId = 'user_' + (Math.random() * 1000).toFixed(0);
+  }
   
   // Always save to local storage first (primary storage)
   try {
@@ -254,6 +277,29 @@ function initializePopup() {
           uidDisplay.textContent = 'UID not available (not signed in)';
         }
       });
+    });
+  }
+
+  // ---- Check Current Time Button (debug) ----
+  const checkTimeBtn = document.getElementById('check-time');
+  const timeDisplay = document.getElementById('time-display');
+  if (checkTimeBtn && timeDisplay) {
+    checkTimeBtn.addEventListener('click', async () => {
+      timeDisplay.textContent = 'Querying...';
+      const tab = await queryActive();
+      if (!tab) {
+        timeDisplay.textContent = 'No active tab';
+        return;
+      }
+      const resp = await sendToContent(tab.id, { type: 'query-current-time' });
+      console.log('[popup] check-time response:', resp);
+      if (!resp) {
+        timeDisplay.textContent = 'No response from content script';
+      } else if (typeof resp.currentTime === 'number') {
+        timeDisplay.textContent = 'Current time: ' + formatTime(resp.currentTime) + ' (' + resp.currentTime + 's)';
+      } else {
+        timeDisplay.textContent = 'Invalid response: ' + JSON.stringify(resp);
+      }
     });
   }
   

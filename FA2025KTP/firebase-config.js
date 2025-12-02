@@ -22,9 +22,10 @@ export const firebaseConfig = {
   apiKey: "AIzaSyDANGxPRuIKzLnKYAdjjAXdiJCXFIyn-_w",
   authDomain: "ktp-extension-project.firebaseapp.com",
   projectId: "ktp-extension-project",
-  storageBucket: "ktp-extension-project.appspot.com",
+  storageBucket: "ktp-extension-project.firebasestorage.app",
   messagingSenderId: "939328835107",
   appId: "1:939328835107:web:6430459705eb0e98b32b96",
+  measurementId: "G-YZBHSWWQMM"
 };
 
 // Initialize Firebase app and Firestore
