@@ -6,6 +6,7 @@
 
 const STORAGE_KEY = 'ktp_shows_journal';
 const FRIENDS_NICKNAMES_KEY = 'ktp_friend_nicknames';
+const GLOBAL_FRIENDS_KEY = 'ktp_global_friends';
 
 /**
  * Initialize device ID if it doesn't exist
@@ -271,6 +272,10 @@ export async function addFriend(showId, deviceId) {
   }
 
   const cleanId = deviceId.trim();
+
+  // Ensure friend is stored globally as well
+  await addGlobalFriend(cleanId).catch(() => {});
+
   if (!show.friends.includes(cleanId)) {
     show.friends.push(cleanId);
     show.lastModified = Date.now();
@@ -317,6 +322,53 @@ export async function getFriends(showId) {
   }
 
   return show.friends || [];
+}
+
+/**
+ * Get global friends list
+ * @returns {Promise<Array>} Array of device IDs
+ */
+export async function getGlobalFriends() {
+  const data = await chrome.storage.local.get(GLOBAL_FRIENDS_KEY);
+  return data[GLOBAL_FRIENDS_KEY] || [];
+}
+
+/**
+ * Add a device ID to the global friends list
+ * @param {string} deviceId
+ */
+export async function addGlobalFriend(deviceId) {
+  if (!deviceId || deviceId.trim().length === 0) return;
+  const data = await chrome.storage.local.get(GLOBAL_FRIENDS_KEY);
+  const list = data[GLOBAL_FRIENDS_KEY] || [];
+  const clean = deviceId.trim();
+  if (!list.includes(clean)) {
+    list.push(clean);
+    await chrome.storage.local.set({ [GLOBAL_FRIENDS_KEY]: list });
+  }
+}
+
+/**
+ * Remove a device ID from the global friends list and from all shows
+ * @param {string} deviceId
+ */
+export async function removeGlobalFriend(deviceId) {
+  if (!deviceId) return;
+  const data = await chrome.storage.local.get(GLOBAL_FRIENDS_KEY);
+  let list = data[GLOBAL_FRIENDS_KEY] || [];
+  list = list.filter(id => id !== deviceId);
+  await chrome.storage.local.set({ [GLOBAL_FRIENDS_KEY]: list });
+
+  // Remove from all shows as well
+  const journal = await getJournal();
+  let changed = false;
+  journal.forEach(show => {
+    if (show.friends && show.friends.includes(deviceId)) {
+      show.friends = show.friends.filter(id => id !== deviceId);
+      changed = true;
+    }
+  });
+  if (changed) await saveJournal(journal);
 }
 
 /**
@@ -502,6 +554,9 @@ export default {
   addFriend,
   removeFriend,
   getFriends,
+  getGlobalFriends,
+  addGlobalFriend,
+  removeGlobalFriend,
   setFriendNickname,
   getFriendNickname,
   getAllFriendNicknames,

@@ -404,18 +404,19 @@ async function loadFriends() {
   
   const container = document.getElementById('friends-list');
   try {
-    const friends = currentShow.friends || [];
-    
-    if (friends.length === 0) {
+    // Use global friends list so friendships persist across shows
+    const globalFriends = await Journal.getGlobalFriends();
+
+    if (!globalFriends || globalFriends.length === 0) {
       container.innerHTML = '<div class="no-data">No friends added yet</div>';
       return;
     }
 
     // Get all friend nicknames
     const nicknames = await Journal.getAllFriendNicknames();
-    
+
     container.innerHTML = '';
-    friends.forEach(friendId => {
+    globalFriends.forEach(friendId => {
       const el = document.createElement('div');
       el.style.padding = '10px';
       el.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
@@ -430,12 +431,14 @@ async function loadFriends() {
       
       const nickname = nicknames[friendId];
       const displayText = nickname ? `${nickname} (${friendId.substring(0, 8)}...)` : friendId;
-      
+      const subscribed = (currentShow.friends || []).includes(friendId);
+
       el.innerHTML = `
         <div style="word-break:break-all;font-family:${nickname ? 'inherit' : 'monospace'};font-size:12px;flex:1">👤 ${displayText}</div>
-        <div style="display:flex;gap:4px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="secondary friend-sub-btn" data-friend="${friendId}" style="padding:6px 10px;font-size:12px">${subscribed ? '✓ Subscribed' : 'Subscribe'}</button>
           <button class="secondary friend-rename-btn" data-friend="${friendId}" style="padding:4px 8px;font-size:11px">✏️ Rename</button>
-          <button class="secondary friend-remove-btn" data-friend="${friendId}" style="padding:4px 8px;font-size:11px">✕ Remove</button>
+          <button class="secondary friend-unfriend-btn" data-friend="${friendId}" style="padding:4px 8px;font-size:11px">⚠️ Unfriend</button>
         </div>
       `;
       
@@ -455,17 +458,34 @@ async function loadFriends() {
         }
       });
       
-      el.querySelector('.friend-remove-btn').addEventListener('click', async (e) => {
+      el.querySelector('.friend-sub-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          if (subscribed) {
+            const updated = await Journal.removeFriend(currentShow.id, friendId);
+            currentShow = updated;
+          } else {
+            const updated = await Journal.addFriend(currentShow.id, friendId);
+            currentShow = updated;
+          }
+          loadFriends();
+          loadAnnotations();
+        } catch (err) {
+          alert('Error updating subscription: ' + err.message);
+        }
+      });
+
+      el.querySelector('.friend-unfriend-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
         const displayName = nickname || friendId;
-        if (confirm(`Remove ${displayName}?`)) {
-          try {
-            await Journal.removeFriend(currentShow.id, friendId);
-            currentShow = await Journal.getJournal().then(j => j.find(s => s.id === currentShow.id));
-            loadFriends();
-          } catch (err) {
-            alert('Error removing friend: ' + err.message);
-          }
+        if (!confirm(`Remove ${displayName} as a friend (this removes them globally)?`)) return;
+        try {
+          await Journal.removeGlobalFriend(friendId);
+          currentShow = await Journal.getJournal().then(j => j.find(s => s.id === currentShow.id));
+          loadFriends();
+          loadAnnotations();
+        } catch (err) {
+          alert('Error unfriending: ' + err.message);
         }
       });
       
