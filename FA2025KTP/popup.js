@@ -801,6 +801,58 @@ function initializePopup() {
     }
   }
 
+  // ---- Export Show Button ----
+  const exportShowBtn = document.getElementById('btn-export-show');
+  if (exportShowBtn) {
+    exportShowBtn.addEventListener('click', async () => {
+      if (!currentShow) {
+        alert('No show selected');
+        return;
+      }
+
+      try {
+        const jsonData = await Journal.exportShow(currentShow.id);
+        
+        // Copy to clipboard
+        await navigator.clipboard.writeText(jsonData);
+        
+        exportShowBtn.textContent = '✓ Copied to clipboard!';
+        setTimeout(() => {
+          exportShowBtn.textContent = '📤 Export My Reactions';
+        }, 2000);
+
+        alert('✓ Your reactions exported and copied!\n\nShare this with your friends so they can see your reactions.');
+      } catch (e) {
+        alert('Error: ' + (e && e.message ? e.message : 'unknown'));
+      }
+    });
+  }
+
+  // ---- Import Show Button ----
+  const importShowBtn = document.getElementById('btn-import-show');
+  if (importShowBtn) {
+    importShowBtn.addEventListener('click', async () => {
+      if (!currentShow) {
+        alert('No show selected');
+        return;
+      }
+
+      const jsonData = prompt('Paste your friend\'s exported reaction data here:');
+      if (!jsonData || !jsonData.trim()) {
+        return;
+      }
+
+      try {
+        const result = await Journal.importShowAnnotations(currentShow.id, jsonData);
+        currentShow = result.show;
+        loadAnnotations();
+        alert(`✓ Imported ${result.addedCount} reaction${result.addedCount !== 1 ? 's' : ''} from your friend!`);
+      } catch (e) {
+        alert('Error: ' + (e && e.message ? e.message : 'unknown'));
+      }
+    });
+  }
+
   // ---- Refresh When Popup Opened Again ----
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {

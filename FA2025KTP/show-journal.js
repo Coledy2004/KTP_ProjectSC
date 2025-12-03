@@ -261,6 +261,74 @@ export async function getFriends(showId) {
 }
 
 /**
+ * Export a single show's data (for sharing with friends)
+ * @param {string} showId - Show ID
+ * @returns {Promise<string>} JSON string with show and its annotations
+ */
+export async function exportShow(showId) {
+  const journal = await getJournal();
+  const show = journal.find(s => s.id === showId);
+  
+  if (!show) {
+    throw new Error(`Show with id ${showId} not found`);
+  }
+
+  // Return show data with annotations only (not friends list)
+  const exportData = {
+    title: show.title,
+    annotations: show.annotations || [],
+    exportedAt: Date.now()
+  };
+
+  return JSON.stringify(exportData, null, 2);
+}
+
+/**
+ * Merge annotations from imported show data
+ * @param {string} showId - Local show ID
+ * @param {string} jsonStr - JSON string from exported show
+ * @returns {Promise<Object>} Updated show object
+ */
+export async function importShowAnnotations(showId, jsonStr) {
+  const journal = await getJournal();
+  const show = journal.find(s => s.id === showId);
+  
+  if (!show) {
+    throw new Error(`Show with id ${showId} not found`);
+  }
+
+  let importedData;
+  try {
+    importedData = JSON.parse(jsonStr);
+  } catch (e) {
+    throw new Error('Invalid JSON format');
+  }
+
+  if (!Array.isArray(importedData.annotations)) {
+    throw new Error('Invalid annotations data');
+  }
+
+  // Merge annotations - avoid duplicates by checking ID
+  const existingIds = new Set(show.annotations.map(a => a.id));
+  let addedCount = 0;
+
+  importedData.annotations.forEach(ann => {
+    if (!existingIds.has(ann.id)) {
+      show.annotations.push(ann);
+      addedCount++;
+    }
+  });
+
+  // Re-sort by timestamp
+  show.annotations.sort((a, b) => a.timestamp - b.timestamp);
+  show.lastModified = Date.now();
+  
+  await saveJournal(journal);
+
+  return { show, addedCount };
+}
+
+/**
  * Export entire journal as JSON
  * @returns {Promise<string>} JSON string
  */
@@ -331,6 +399,8 @@ export default {
   addFriend,
   removeFriend,
   getFriends,
+  exportShow,
+  importShowAnnotations,
   exportJournal,
   importJournal,
   clearJournal,
