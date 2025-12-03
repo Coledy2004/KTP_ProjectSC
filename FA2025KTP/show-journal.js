@@ -5,6 +5,7 @@
  */
 
 const STORAGE_KEY = 'ktp_shows_journal';
+const FRIENDS_NICKNAMES_KEY = 'ktp_friend_nicknames';
 
 /**
  * Get or create a show entry
@@ -47,11 +48,53 @@ export async function getOrCreateShow(showTitle) {
 export async function getJournal() {
   try {
     const data = await chrome.storage.local.get([STORAGE_KEY]);
-    return data[STORAGE_KEY] || [];
+    let journal = data[STORAGE_KEY] || [];
+    
+    // Migrate old annotations to add deviceId if missing
+    const migrated = await migrateAnnotations(journal);
+    if (migrated) {
+      journal = migrated;
+    }
+    
+    return journal;
   } catch (e) {
     console.error('[show-journal] Failed to read journal:', e?.message);
     return [];
   }
+}
+
+/**
+ * Migrate old annotations to add deviceId field if missing
+ * @private
+ */
+async function migrateAnnotations(journal) {
+  if (!Array.isArray(journal)) return null;
+  
+  const stored = await chrome.storage.local.get('ktp_device_id');
+  const currentDeviceId = stored.ktp_device_id || 'unknown';
+  let needsSave = false;
+  
+  journal.forEach(show => {
+    if (show.annotations && Array.isArray(show.annotations)) {
+      show.annotations.forEach(ann => {
+        if (!ann.deviceId) {
+          ann.deviceId = currentDeviceId;
+          needsSave = true;
+        }
+      });
+    }
+  });
+  
+  if (needsSave) {
+    try {
+      await saveJournal(journal);
+    } catch (e) {
+      console.error('[show-journal] Failed to save migrated journal:', e?.message);
+    }
+    return journal;
+  }
+  
+  return null;
 }
 
 /**
@@ -261,6 +304,49 @@ export async function getFriends(showId) {
 }
 
 /**
+ * Set a nickname for a friend device ID (global, used across all shows)
+ * @param {string} deviceId - Friend's device ID
+ * @param {string} nickname - Display name for the friend
+ * @returns {Promise<void>}
+ */
+export async function setFriendNickname(deviceId, nickname) {
+  if (!deviceId || deviceId.trim().length === 0) {
+    throw new Error('Device ID cannot be empty');
+  }
+
+  const data = await chrome.storage.local.get(FRIENDS_NICKNAMES_KEY);
+  const nicknames = data[FRIENDS_NICKNAMES_KEY] || {};
+  
+  if (nickname && nickname.trim().length > 0) {
+    nicknames[deviceId] = nickname.trim();
+  } else {
+    delete nicknames[deviceId];
+  }
+
+  await chrome.storage.local.set({ [FRIENDS_NICKNAMES_KEY]: nicknames });
+}
+
+/**
+ * Get a nickname for a friend device ID
+ * @param {string} deviceId - Friend's device ID
+ * @returns {Promise<string>} Nickname if set, otherwise device ID
+ */
+export async function getFriendNickname(deviceId) {
+  const data = await chrome.storage.local.get(FRIENDS_NICKNAMES_KEY);
+  const nicknames = data[FRIENDS_NICKNAMES_KEY] || {};
+  return nicknames[deviceId] || deviceId;
+}
+
+/**
+ * Get all friend nicknames
+ * @returns {Promise<Object>} Map of deviceId -> nickname
+ */
+export async function getAllFriendNicknames() {
+  const data = await chrome.storage.local.get(FRIENDS_NICKNAMES_KEY);
+  return data[FRIENDS_NICKNAMES_KEY] || {};
+}
+
+/**
  * Export a single show's data (for sharing with friends)
  * @param {string} showId - Show ID
  * @returns {Promise<string>} JSON string with show and its annotations
@@ -399,6 +485,9 @@ export default {
   addFriend,
   removeFriend,
   getFriends,
+  setFriendNickname,
+  getFriendNickname,
+  getAllFriendNicknames,
   exportShow,
   importShowAnnotations,
   exportJournal,

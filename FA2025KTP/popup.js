@@ -337,6 +337,9 @@ async function loadAnnotations() {
     const stored = await chrome.storage.local.get('ktp_device_id');
     const currentDeviceId = stored.ktp_device_id || '';
     
+    // Get all friend nicknames
+    const nicknames = await Journal.getAllFriendNicknames();
+    
     container.innerHTML = '';
     annotations.forEach((ann, idx) => {
       const el = document.createElement('div');
@@ -345,12 +348,25 @@ async function loadAnnotations() {
       const createdDate = Journal.formatDate(ann.createdDate);
       const deviceId = ann.deviceId || 'unknown';
       const isOwnAnnotation = deviceId === currentDeviceId;
-      const deviceLabel = isOwnAnnotation ? '📍 You' : `👤 ${deviceId.substring(0, 12)}...`;
+      let displayName = '📍 You';
+      
+      if (!isOwnAnnotation) {
+        if (deviceId === 'unknown') {
+          displayName = '👤 Unknown';
+        } else {
+          const nickname = nicknames[deviceId];
+          if (nickname) {
+            displayName = `👤 ${nickname}`;
+          } else {
+            displayName = `👤 ${deviceId.substring(0, 12)}...`;
+          }
+        }
+      }
       
       el.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div style="flex:1">
-            <div class="annotation-time">${Journal.formatTime(ann.timestamp)} <span style="color:var(--muted);font-size:11px">${deviceLabel}</span></div>
+            <div class="annotation-time">${Journal.formatTime(ann.timestamp)} <span style="color:var(--muted);font-size:11px">${displayName}</span></div>
             <div class="annotation-text">${ann.text.replace(/</g, '&lt;')}</div>
             <div class="annotation-date">${createdDate}</div>
           </div>
@@ -394,6 +410,9 @@ async function loadFriends() {
       container.innerHTML = '<div class="no-data">No friends added yet</div>';
       return;
     }
+
+    // Get all friend nicknames
+    const nicknames = await Journal.getAllFriendNicknames();
     
     container.innerHTML = '';
     friends.forEach(friendId => {
@@ -406,18 +425,43 @@ async function loadFriends() {
       el.style.display = 'flex';
       el.style.justifyContent = 'space-between';
       el.style.alignItems = 'center';
+      el.style.flexWrap = 'wrap';
+      el.style.gap = '8px';
+      
+      const nickname = nicknames[friendId];
+      const displayText = nickname ? `${nickname} (${friendId.substring(0, 8)}...)` : friendId;
       
       el.innerHTML = `
-        <div style="word-break:break-all;font-family:monospace;font-size:12px">👤 ${friendId}</div>
-        <button class="secondary friend-remove-btn" data-friend="${friendId}" style="padding:4px 8px;font-size:11px">Remove</button>
+        <div style="word-break:break-all;font-family:${nickname ? 'inherit' : 'monospace'};font-size:12px;flex:1">👤 ${displayText}</div>
+        <div style="display:flex;gap:4px">
+          <button class="secondary friend-rename-btn" data-friend="${friendId}" style="padding:4px 8px;font-size:11px">✏️ Rename</button>
+          <button class="secondary friend-remove-btn" data-friend="${friendId}" style="padding:4px 8px;font-size:11px">✕ Remove</button>
+        </div>
       `;
+      
+      el.querySelector('.friend-rename-btn').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const currentNickname = nicknames[friendId] || '';
+        const newNickname = prompt(`Rename "${currentNickname || 'Friend'}" to:`, currentNickname);
+        
+        if (newNickname !== null) {
+          try {
+            await Journal.setFriendNickname(friendId, newNickname);
+            loadFriends();
+            loadAnnotations();
+          } catch (err) {
+            alert('Error renaming friend: ' + err.message);
+          }
+        }
+      });
       
       el.querySelector('.friend-remove-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm(`Remove ${friendId}?`)) {
+        const displayName = nickname || friendId;
+        if (confirm(`Remove ${displayName}?`)) {
           try {
-            const updated = await Journal.removeFriend(currentShow.id, friendId);
-            currentShow = updated;
+            await Journal.removeFriend(currentShow.id, friendId);
+            currentShow = await Journal.getJournal().then(j => j.find(s => s.id === currentShow.id));
             loadFriends();
           } catch (err) {
             alert('Error removing friend: ' + err.message);
