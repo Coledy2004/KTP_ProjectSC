@@ -1,5 +1,5 @@
 // ================================================================================
-// POPUP.JS - Personal Movie/Show Journal
+// POPUP.JS - FlixLog Personal Show Tracker
 // Local-only storage, no cloud sync, no friends sharing
 // ================================================================================
 
@@ -8,6 +8,7 @@ import * as Journal from './show-journal.js';
 // State
 let currentShow = null; // Currently selected show for viewing/editing
 let nowWatchingTitle = null; // Currently detected show on Netflix
+let currentRating = 0; // Current star rating for the show being edited
 
 // ---- Utility Functions ----
 
@@ -168,7 +169,12 @@ function showJournalEntry(show) {
   document.getElementById('review').value = show.review || '';
   document.getElementById('annotation-input').value = '';
   
+  // Set rating stars
+  const rating = show.rating || 0;
+  updateRatingDisplay(rating);
+  
   loadAnnotations();
+  loadFriends();
   
   // Switch to info tab
   switchTab('info');
@@ -182,6 +188,53 @@ function switchTab(tabName) {
   // Show selected tab
   document.getElementById(`tab-${tabName}`).style.display = 'block';
   document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+}
+
+// ---- Star Rating Functions ----
+
+function updateRatingDisplay(rating) {
+  currentRating = rating;
+  const stars = document.querySelectorAll('.star');
+  const ratingText = document.getElementById('rating-text');
+  
+  stars.forEach((star, idx) => {
+    if (idx + 1 <= rating) {
+      star.classList.add('selected');
+    } else {
+      star.classList.remove('selected');
+    }
+  });
+  
+  if (rating > 0) {
+    ratingText.textContent = `${rating} star${rating !== 1 ? 's' : ''}`;
+  } else {
+    ratingText.textContent = '';
+  }
+}
+
+function initializeRatingStars() {
+  const stars = document.querySelectorAll('.star');
+  stars.forEach(star => {
+    star.addEventListener('click', () => {
+      const rating = parseInt(star.getAttribute('data-rating'));
+      updateRatingDisplay(rating);
+    });
+    
+    star.addEventListener('mouseenter', () => {
+      const hoverRating = parseInt(star.getAttribute('data-rating'));
+      stars.forEach((s, idx) => {
+        if (idx + 1 <= hoverRating) {
+          s.classList.add('hovered');
+        } else {
+          s.classList.remove('hovered');
+        }
+      });
+    });
+  });
+  
+  document.getElementById('star-rating').addEventListener('mouseleave', () => {
+    stars.forEach(s => s.classList.remove('hovered'));
+  });
 }
 
 // ---- Load & Render Shows List ----
@@ -280,33 +333,94 @@ async function loadAnnotations() {
       return;
     }
     
+    // Get current device ID to highlight own annotations
+    const stored = await chrome.storage.local.get('ktp_device_id');
+    const currentDeviceId = stored.ktp_device_id || '';
+    
     container.innerHTML = '';
     annotations.forEach((ann, idx) => {
       const el = document.createElement('div');
       el.className = 'annotation-item';
       
       const createdDate = Journal.formatDate(ann.createdDate);
+      const deviceId = ann.deviceId || 'unknown';
+      const isOwnAnnotation = deviceId === currentDeviceId;
+      const deviceLabel = isOwnAnnotation ? '📍 You' : `👤 ${deviceId.substring(0, 12)}...`;
       
       el.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div style="flex:1">
-            <div class="annotation-time">${Journal.formatTime(ann.timestamp)}</div>
+            <div class="annotation-time">${Journal.formatTime(ann.timestamp)} <span style="color:var(--muted);font-size:11px">${deviceLabel}</span></div>
             <div class="annotation-text">${ann.text.replace(/</g, '&lt;')}</div>
             <div class="annotation-date">${createdDate}</div>
           </div>
-          <button class="secondary annotation-delete-btn" data-idx="${idx}" style="padding:4px 6px;font-size:11px">✕</button>
+          ${isOwnAnnotation ? `<button class="secondary annotation-delete-btn" data-idx="${idx}" style="padding:4px 6px;font-size:11px">✕</button>` : ''}
         </div>
       `;
       
-      el.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
+      if (isOwnAnnotation) {
+        el.querySelector('.annotation-delete-btn').addEventListener('click', async (e) => {
+          e.stopPropagation();
+          if (confirm('Delete this annotation?')) {
+            try {
+              const updated = await Journal.removeAnnotation(currentShow.id, ann.id);
+              currentShow = updated;
+              loadAnnotations();
+            } catch (err) {
+              alert('Error deleting annotation: ' + err.message);
+            }
+          }
+        });
+      }
+      
+      container.appendChild(el);
+    });
+  } catch (e) {
+    console.error('[popup] Failed to load annotations:', e?.message);
+    container.innerHTML = '<div class="no-data">Error loading annotations</div>';
+  }
+}
+
+// ---- Load & Render Friends ----
+
+async function loadFriends() {
+  if (!currentShow) return;
+  
+  const container = document.getElementById('friends-list');
+  try {
+    const friends = currentShow.friends || [];
+    
+    if (friends.length === 0) {
+      container.innerHTML = '<div class="no-data">No friends added yet</div>';
+      return;
+    }
+    
+    container.innerHTML = '';
+    friends.forEach(friendId => {
+      const el = document.createElement('div');
+      el.style.padding = '10px';
+      el.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+      el.style.background = 'rgba(255,255,255,0.03)';
+      el.style.borderRadius = '4px';
+      el.style.marginBottom = '6px';
+      el.style.display = 'flex';
+      el.style.justifyContent = 'space-between';
+      el.style.alignItems = 'center';
+      
+      el.innerHTML = `
+        <div style="word-break:break-all;font-family:monospace;font-size:12px">👤 ${friendId}</div>
+        <button class="secondary friend-remove-btn" data-friend="${friendId}" style="padding:4px 8px;font-size:11px">Remove</button>
+      `;
+      
+      el.querySelector('.friend-remove-btn').addEventListener('click', async (e) => {
         e.stopPropagation();
-        if (confirm('Delete this annotation?')) {
+        if (confirm(`Remove ${friendId}?`)) {
           try {
-            const updated = await Journal.removeAnnotation(currentShow.id, ann.id);
+            const updated = await Journal.removeFriend(currentShow.id, friendId);
             currentShow = updated;
-            loadAnnotations();
+            loadFriends();
           } catch (err) {
-            alert('Error deleting annotation: ' + err.message);
+            alert('Error removing friend: ' + err.message);
           }
         }
       });
@@ -314,8 +428,8 @@ async function loadAnnotations() {
       container.appendChild(el);
     });
   } catch (e) {
-    console.error('[popup] Failed to load annotations:', e?.message);
-    container.innerHTML = '<div class="no-data">Error loading annotations</div>';
+    console.error('[popup] Failed to load friends:', e?.message);
+    container.innerHTML = '<div class="no-data">Error loading friends</div>';
   }
 }
 
@@ -338,6 +452,9 @@ function initializePopup() {
     });
   });
 
+  // ---- Initialize Rating Stars ----
+  initializeRatingStars();
+
   // ---- Add to Journal Button ----
   const addBtn = document.getElementById('btn-add-to-journal');
   if (addBtn) {
@@ -346,46 +463,14 @@ function initializePopup() {
       addBtn.textContent = 'Adding...';
       
       try {
-        const tab = await queryActive();
-        if (!tab) {
-          alert('No active tab');
+        // Use the title already displayed in "Now watching" section
+        if (!nowWatchingTitle) {
+          alert('No show currently playing. Please start playing a show on Netflix first.');
           return;
         }
 
-        if (!tab.url || !tab.url.includes('netflix.com')) {
-          alert('Please navigate to Netflix first');
-          return;
-        }
-
-        // Try multiple times to get the title with longer delays
-        let title = null;
-        const maxAttempts = 3;
-        
-        for (let i = 0; i < maxAttempts; i++) {
-          if (i > 0) {
-            console.log(`[popup] add-to-journal attempt ${i + 1} of ${maxAttempts}`);
-            await new Promise(resolve => setTimeout(resolve, 1500));
-          }
-          
-          const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
-          if (resp && resp.title && resp.title !== 'Netflix') {
-            title = resp.title;
-            break;
-          }
-        }
-
-        if (!title) {
-          // Offer manual entry as a fallback
-          const manual = prompt('Could not detect the show title automatically.\n\nThis can happen if:\n• No video is playing\n• Netflix is still loading\n• The page structure has changed\n\nEnter the title manually:');
-          if (!manual || !manual.trim()) {
-            alert('No title provided');
-            return;
-          }
-          title = manual.trim();
-        }
-
-        // Persist using the detected or manually entered title
-        const show = await Journal.getOrCreateShow(title);
+        // Persist using the title from "Now watching"
+        const show = await Journal.getOrCreateShow(nowWatchingTitle);
         showJournalEntry(show);
         alert(`✓ Added "${show.title}" to your journal!`);
       } catch (e) {
@@ -460,9 +545,10 @@ function initializePopup() {
       if (!currentShow) return;
       try {
         const reviewText = document.getElementById('review').value;
-        const updated = await Journal.updateShowReview(currentShow.id, reviewText);
+        const rating = currentRating || 0;
+        const updated = await Journal.updateShowReview(currentShow.id, reviewText, rating);
         currentShow = updated;
-        alert('✓ Review saved!');
+        alert('✓ Review and rating saved!');
       } catch (e) {
         alert('Error: ' + e.message);
       }
@@ -536,6 +622,53 @@ function initializePopup() {
     });
   }
 
+  // ---- Quick Emoji Annotation Buttons ----
+  const emojiButtons = [
+    { id: 'btn-emoji-laugh', emoji: '😂', label: 'Funny' },
+    { id: 'btn-emoji-shock', emoji: '😲', label: 'Shocking' },
+    { id: 'btn-emoji-love', emoji: '😍', label: 'Love it' },
+    { id: 'btn-emoji-cry', emoji: '😢', label: 'Sad' },
+    { id: 'btn-emoji-fire', emoji: '🔥', label: 'Fire' },
+    { id: 'btn-emoji-mind', emoji: '🤯', label: 'Mind blown' },
+    { id: 'btn-emoji-clap', emoji: '👏', label: 'Clap' },
+    { id: 'btn-emoji-thumbs', emoji: '👍', label: 'Thumbs up' }
+  ];
+
+  emojiButtons.forEach(({ id, emoji, label }) => {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.addEventListener('click', async () => {
+        if (!currentShow) {
+          alert('No show selected');
+          return;
+        }
+        
+        const tab = await queryActive();
+        if (!tab) {
+          alert('No active tab');
+          return;
+        }
+        
+        const resp = await sendToContent(tab.id, { type: 'query-current-time' });
+        if (!resp || typeof resp.currentTime !== 'number') {
+          alert('Could not read current time from Netflix');
+          return;
+        }
+        
+        try {
+          const updated = await Journal.addAnnotation(currentShow.id, resp.currentTime, emoji);
+          currentShow = updated;
+          loadAnnotations();
+          // Silent feedback - no alert, just a brief visual change
+          btn.style.opacity = '0.5';
+          setTimeout(() => { btn.style.opacity = '1'; }, 200);
+        } catch (e) {
+          alert('Error: ' + e.message);
+        }
+      });
+    }
+  });
+
   // ---- Playback Control Buttons ----
   const playBtn = document.getElementById('btn-play');
   if (playBtn) {
@@ -553,6 +686,119 @@ function initializePopup() {
       if (!tab) return;
       await sendToContent(tab.id, { type: 'pause' });
     });
+  }
+
+  // ---- Settings Button ----
+  const settingsBtn = document.getElementById('btn-settings');
+  const settingsCard = document.getElementById('settings-card');
+  const backFromSettingsBtn = document.getElementById('btn-back-from-settings');
+  const showUserIdBtn = document.getElementById('btn-show-user-id');
+  const copyUserIdBtn = document.getElementById('btn-copy-user-id');
+  const userIdDisplay = document.getElementById('user-id-display');
+
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      document.getElementById('journal-list-card').style.display = 'none';
+      document.getElementById('journal-entry-card').style.display = 'none';
+      settingsCard.style.display = 'block';
+      userIdDisplay.textContent = '—';
+    });
+  }
+
+  if (backFromSettingsBtn) {
+    backFromSettingsBtn.addEventListener('click', () => {
+      settingsCard.style.display = 'none';
+      showJournalList();
+    });
+  }
+
+  if (showUserIdBtn) {
+    showUserIdBtn.addEventListener('click', async () => {
+      try {
+        const journal = await Journal.getJournal();
+        let userId = null;
+
+        // Look for a stored user ID in local storage
+        const stored = await chrome.storage.local.get('ktp_device_id');
+        if (stored.ktp_device_id) {
+          userId = stored.ktp_device_id;
+        } else {
+          // Generate a new device ID if one doesn't exist
+          userId = 'device_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now();
+          await chrome.storage.local.set({ ktp_device_id: userId });
+        }
+
+        userIdDisplay.textContent = userId;
+      } catch (e) {
+        userIdDisplay.textContent = 'Error: ' + (e && e.message ? e.message : 'unknown');
+      }
+    });
+  }
+
+  if (copyUserIdBtn) {
+    copyUserIdBtn.addEventListener('click', async () => {
+      const text = userIdDisplay.textContent;
+      if (text === '—') {
+        alert('Please click "Show User ID" first');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        copyUserIdBtn.textContent = '✓ Copied!';
+        setTimeout(() => {
+          copyUserIdBtn.textContent = '📋 Copy ID';
+        }, 2000);
+      } catch (e) {
+        alert('Error copying to clipboard: ' + (e && e.message ? e.message : 'unknown'));
+      }
+    });
+  }
+
+  // ---- Add Friend Button ----
+  const addFriendBtn = document.getElementById('btn-add-friend');
+  const friendIdInput = document.getElementById('friend-id-input');
+  
+  if (addFriendBtn) {
+    addFriendBtn.addEventListener('click', async () => {
+      if (!currentShow) {
+        alert('No show selected');
+        return;
+      }
+
+      const friendId = friendIdInput.value.trim();
+      if (!friendId) {
+        alert('Please enter a device ID');
+        return;
+      }
+
+      // Get current device ID
+      const stored = await chrome.storage.local.get('ktp_device_id');
+      const currentDeviceId = stored.ktp_device_id || '';
+      
+      if (friendId === currentDeviceId) {
+        alert('You cannot add yourself as a friend');
+        return;
+      }
+
+      try {
+        const updated = await Journal.addFriend(currentShow.id, friendId);
+        currentShow = updated;
+        friendIdInput.value = '';
+        loadFriends();
+        alert(`✓ Added friend!`);
+      } catch (e) {
+        alert('Error: ' + (e && e.message ? e.message : 'unknown'));
+      }
+    });
+
+    // Also allow Enter key to add friend
+    if (friendIdInput) {
+      friendIdInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          addFriendBtn.click();
+        }
+      });
+    }
   }
 
   // ---- Refresh When Popup Opened Again ----

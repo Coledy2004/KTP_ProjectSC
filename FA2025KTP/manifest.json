@@ -1,8 +1,8 @@
 {
 	"manifest_version": 3,
-	"name": "Movie Journal",
+	"name": "FlixLog",
 	"version": "0.2.0",
-	"description": "Log movies and shows you watch, write reviews, and annotate scenes with timestamp-based notes.",
+	"description": "Track movies and shows you watch, write reviews, and annotate scenes with timestamp-based notes.",
 	"icons": {
 		"16": "icons/icon16.png",
 		"48": "icons/icon48.png",

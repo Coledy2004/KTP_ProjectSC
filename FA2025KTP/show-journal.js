@@ -26,8 +26,10 @@ export async function getOrCreateShow(showTitle) {
     show = {
       id: generateId(),
       title: showTitle.trim(),
+      rating: 0,
       review: '',
       annotations: [],
+      friends: [],
       addedDate: Date.now(),
       lastModified: Date.now()
     };
@@ -66,12 +68,13 @@ async function saveJournal(journal) {
 }
 
 /**
- * Update a show's review
+ * Update a show's review and rating
  * @param {string} showId - Show ID
  * @param {string} reviewText - New review text
+ * @param {number} rating - Rating 0-5
  * @returns {Promise<Object>} Updated show object
  */
-export async function updateShowReview(showId, reviewText) {
+export async function updateShowReview(showId, reviewText, rating = 0) {
   const journal = await getJournal();
   const show = journal.find(s => s.id === showId);
   
@@ -80,6 +83,7 @@ export async function updateShowReview(showId, reviewText) {
   }
   
   show.review = reviewText.trim();
+  show.rating = Math.max(0, Math.min(5, parseInt(rating) || 0));
   show.lastModified = Date.now();
   await saveJournal(journal);
   
@@ -101,6 +105,10 @@ export async function addAnnotation(showId, timestampSeconds, annotationText) {
   if (!annotationText || annotationText.trim().length === 0) {
     throw new Error('Annotation text cannot be empty');
   }
+
+  // Get current device ID
+  const stored = await chrome.storage.local.get('ktp_device_id');
+  const deviceId = stored.ktp_device_id || 'unknown';
   
   const journal = await getJournal();
   const show = journal.find(s => s.id === showId);
@@ -113,7 +121,8 @@ export async function addAnnotation(showId, timestampSeconds, annotationText) {
     id: generateId(),
     timestamp: Math.round(timestampSeconds),
     text: annotationText.trim(),
-    createdDate: Date.now()
+    createdDate: Date.now(),
+    deviceId: deviceId
   };
   
   show.annotations.push(annotation);
@@ -178,6 +187,77 @@ export async function deleteShow(showId) {
 export async function getShowByTitle(showTitle) {
   const journal = await getJournal();
   return journal.find(s => s.title.toLowerCase() === showTitle.toLowerCase()) || null;
+}
+
+/**
+ * Add a friend device ID to a show
+ * @param {string} showId - Show ID
+ * @param {string} deviceId - Friend's device ID
+ * @returns {Promise<Object>} Updated show object
+ */
+export async function addFriend(showId, deviceId) {
+  if (!deviceId || deviceId.trim().length === 0) {
+    throw new Error('Device ID cannot be empty');
+  }
+
+  const journal = await getJournal();
+  const show = journal.find(s => s.id === showId);
+  
+  if (!show) {
+    throw new Error(`Show with id ${showId} not found`);
+  }
+
+  if (!show.friends) {
+    show.friends = [];
+  }
+
+  const cleanId = deviceId.trim();
+  if (!show.friends.includes(cleanId)) {
+    show.friends.push(cleanId);
+    show.lastModified = Date.now();
+    await saveJournal(journal);
+  }
+
+  return show;
+}
+
+/**
+ * Remove a friend from a show
+ * @param {string} showId - Show ID
+ * @param {string} deviceId - Friend's device ID
+ * @returns {Promise<Object>} Updated show object
+ */
+export async function removeFriend(showId, deviceId) {
+  const journal = await getJournal();
+  const show = journal.find(s => s.id === showId);
+  
+  if (!show) {
+    throw new Error(`Show with id ${showId} not found`);
+  }
+
+  if (show.friends) {
+    show.friends = show.friends.filter(id => id !== deviceId);
+    show.lastModified = Date.now();
+    await saveJournal(journal);
+  }
+
+  return show;
+}
+
+/**
+ * Get all friends for a show
+ * @param {string} showId - Show ID
+ * @returns {Promise<Array>} Array of friend device IDs
+ */
+export async function getFriends(showId) {
+  const journal = await getJournal();
+  const show = journal.find(s => s.id === showId);
+  
+  if (!show) {
+    throw new Error(`Show with id ${showId} not found`);
+  }
+
+  return show.friends || [];
 }
 
 /**
@@ -248,6 +328,9 @@ export default {
   removeAnnotation,
   deleteShow,
   getShowByTitle,
+  addFriend,
+  removeFriend,
+  getFriends,
   exportJournal,
   importJournal,
   clearJournal,

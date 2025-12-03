@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Movie Journal</title>
+  <title>FlixLog</title>
   <style>
     :root{
       --bg:#0f0f11;
@@ -353,13 +353,44 @@
       background:#28a745;
       box-shadow:0 10px 22px rgba(49,162,76,0.3);
     }
+
+    /* Star rating styles */
+    .star-rating {
+      display:flex;
+      gap:6px;
+      margin:10px 0;
+      user-select:none;
+    }
+
+    .star {
+      font-size:28px;
+      cursor:pointer;
+      opacity:0.4;
+      transition:opacity 0.2s ease, transform 0.15s ease;
+    }
+
+    .star:hover, .star.hovered {
+      opacity:0.8;
+      transform:scale(1.15);
+    }
+
+    .star.selected {
+      opacity:1;
+      color:var(--accent);
+    }
+
+    .rating-text {
+      color:var(--muted);
+      font-size:12px;
+      margin-top:6px;
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <div class="logo">📖</div>
     <div class="header-text">
-      <div class="title">Movie Journal</div>
+      <div class="title">FlixLog</div>
       <div class="subtitle">Track & annotate your shows</div>
     </div>
   </div>
@@ -386,12 +417,23 @@
       <div class="tab-buttons">
         <button class="tab-btn active" data-tab="info">Info & Review</button>
         <button class="tab-btn" data-tab="annotations">Annotations</button>
+        <button class="tab-btn" data-tab="friends">Friends</button>
       </div>
 
       <!-- Info & Review Tab -->
       <div id="tab-info" class="tab-content">
         <div class="small muted" style="margin-bottom:6px">Show title</div>
         <div class="show-title-display" id="journal-show-title">—</div>
+        
+        <label style="margin-top:16px;display:block">Your Rating</label>
+        <div class="star-rating" id="star-rating">
+          <span class="star" data-rating="1">★</span>
+          <span class="star" data-rating="2">★</span>
+          <span class="star" data-rating="3">★</span>
+          <span class="star" data-rating="4">★</span>
+          <span class="star" data-rating="5">★</span>
+        </div>
+        <div class="rating-text" id="rating-text"></div>
         
         <label for="review" style="margin-top:16px">Review (optional)</label>
         <textarea id="review" rows="4" placeholder="What did you think of this show?"></textarea>
@@ -405,6 +447,23 @@
             <button id="btn-check-time" class="secondary" style="flex:1">⏱ Current Time</button>
           </div>
           <div id="time-display" class="muted small" style="margin-top:6px;text-align:center"></div>
+          
+          <!-- Quick Emoji Buttons -->
+          <div style="margin-top:12px">
+            <div class="muted small" style="margin-bottom:8px">Quick reactions</div>
+            <div class="flex-gap">
+              <button id="btn-emoji-laugh" class="secondary" style="flex:1;font-size:18px">😂</button>
+              <button id="btn-emoji-shock" class="secondary" style="flex:1;font-size:18px">😲</button>
+              <button id="btn-emoji-love" class="secondary" style="flex:1;font-size:18px">😍</button>
+              <button id="btn-emoji-cry" class="secondary" style="flex:1;font-size:18px">😢</button>
+            </div>
+            <div class="flex-gap" style="margin-top:8px">
+              <button id="btn-emoji-fire" class="secondary" style="flex:1;font-size:18px">🔥</button>
+              <button id="btn-emoji-mind" class="secondary" style="flex:1;font-size:18px">🤯</button>
+              <button id="btn-emoji-clap" class="secondary" style="flex:1;font-size:18px">👏</button>
+              <button id="btn-emoji-thumbs" class="secondary" style="flex:1;font-size:18px">👍</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -413,6 +472,32 @@
         <div class="small muted" style="margin-bottom:10px">Annotations for this show</div>
         <div class="list-container" id="annotations-list">
           <div class="no-data">Loading annotations...</div>
+        </div>
+      </div>
+
+      <!-- Friends Tab -->
+      <div id="tab-friends" class="tab-content" style="display:none">
+        <div style="margin-bottom:14px">
+          <label style="display:block;margin-bottom:8px">Add friend by Device ID</label>
+          <div style="display:flex;gap:6px">
+            <input id="friend-id-input" type="text" placeholder="Paste friend's Device ID..." style="flex:1">
+            <button id="btn-add-friend" style="padding:10px 14px">➕ Add</button>
+          </div>
+        </div>
+
+        <div class="small muted" style="margin-bottom:10px">Friends watching this show</div>
+        <div class="list-container" id="friends-list">
+          <div class="no-data">No friends added yet</div>
+        </div>
+
+        <div style="margin-top:14px;padding:12px;background:rgba(229,9,20,0.1);border-radius:8px;border:1px solid rgba(229,9,20,0.2)">
+          <div class="small muted" style="margin-bottom:6px">💡 How to add friends:</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5">
+            1. Go to Settings (⚙️ button)<br>
+            2. Click "Show User ID"<br>
+            3. Share your Device ID with friends<br>
+            4. Paste their IDs here to see their reactions
+          </div>
         </div>
       </div>
 
@@ -438,10 +523,33 @@
         <button id="btn-pause" class="secondary">⏸ Pause</button>
       </div>
     </div>
+
+    <!-- Settings Page -->
+    <div class="card" id="settings-card" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:700">Settings</div>
+        <button id="btn-back-from-settings" class="secondary" style="padding:6px 10px;font-size:12px">✕ Close</button>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="display:block;margin-bottom:8px">Your Device ID</label>
+        <div style="padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;font-family:monospace;font-size:12px;word-break:break-all;min-height:40px" id="user-id-display">
+          —
+        </div>
+        <button id="btn-show-user-id" style="margin-top:10px;width:100%">🆔 Show User ID</button>
+        <button id="btn-copy-user-id" class="secondary" style="margin-top:8px;width:100%">📋 Copy ID</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Button at Bottom -->
+  <div style="position:fixed;bottom:0;right:0;padding:12px;z-index:1000">
+    <button id="btn-settings" class="secondary" style="padding:8px 12px;font-size:14px;border-radius:50%;width:48px;height:48px;display:flex;align-items:center;justify-content:center;font-size:20px">⚙️</button>
+  </div>
   </div>
 
   <div class="footer">
-    Movie Journal — Track and annotate your favorite shows
+    FlixLog — Track and annotate your favorite shows
   </div>
 
   <script type="module" src="popup.js"></script>

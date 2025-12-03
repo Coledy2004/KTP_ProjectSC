@@ -1,5 +1,5 @@
 // ============================================================================
-// BACKGROUND.JS - Service Worker for Movie Journal Extension
+// BACKGROUND.JS - Service Worker for FlixLog Extension
 // Handles Firebase auth and friend timestamp listeners
 // ============================================================================
 
