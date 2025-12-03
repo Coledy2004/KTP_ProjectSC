@@ -115,7 +115,7 @@ async function updateNowWatching() {
     console.log('[popup] setting title to:', resp.title);
     nowWatchingTitle = resp.title;
     titleEl.textContent = resp.title;
-    epEl.textContent = resp.episode || '(episode info not detected)';
+    epEl.textContent = resp.episode || '';
   } else {
     console.log('[popup] no title in response, setting to default');
     nowWatchingTitle = null;
@@ -394,7 +394,7 @@ function initializePopup() {
         console.log('[popup] refresh-title response:', resp);
         if (resp && resp.title) {
           document.getElementById('movie-title').textContent = resp.title;
-          document.getElementById('movie-episode').textContent = resp.episode || '(episode info not detected)';
+          document.getElementById('movie-episode').textContent = resp.episode || '';
           nowWatchingTitle = resp.title;
         } else {
           document.getElementById('movie-title').textContent = 'Could not refresh';
