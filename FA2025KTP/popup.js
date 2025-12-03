@@ -22,54 +22,53 @@ async function ensureContentScript(tabId) {
     console.log('[popup] injecting content script into tab', tabId);
     await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
     console.log('[popup] injection complete');
+    // Give the script time to initialize
+    await new Promise(resolve => setTimeout(resolve, 500));
     return true;
   } catch (err) {
     console.warn('[popup] injection failed:', err && err.message);
     return false;
   }
 }
+
 async function sendToContent(tabId, msg, retries = 5) {
+  // send a message to the content script; if the receiving end does not exist,
+  // try injecting the content script once and then retry a few times.
   return new Promise((resolve) => {
-    const attemptSend = (attempt = 0) => {
+    const attemptSend = (attempt = 0, triedInject = false) => {
       try {
-        console.log('[popup] sending message to tab', tabId, ':', msg.type, '(attempt', attempt + 1, 'of', retries + 1, ')');
+        console.log('[popup] sending message to tab', tabId, ':', msg.type, `(attempt ${attempt + 1})`);
         chrome.tabs.sendMessage(tabId, msg, (response) => {
           if (chrome.runtime.lastError) {
             const errMsg = chrome.runtime.lastError.message || '';
             console.warn('[popup] sendMessage runtime error:', errMsg);
 
-            // If receiving end does not exist, retry or inject
-            if ((errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection')) && attempt < retries) {
-              console.log('[popup] retrying message send (attempt', attempt + 1, 'of', retries, ')...');
-              // Increase delay for each retry: 500ms, 1s, 1.5s, 2s, 2.5s
-              const delayMs = 500 + (attempt * 500);
-              setTimeout(() => attemptSend(attempt + 1), delayMs);
-              return;
-            }
+            const missingReceiver = errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection');
 
-            // If still failing after some retries, try injecting the content script once
-            if (attempt === 2 && (errMsg.includes('Receiving end does not exist') || errMsg.includes('Could not establish connection'))) {
-              console.log('[popup] detected missing content script after retries, attempting injection...');
+            // If there is no receiving end, try injecting once immediately (if we haven't yet)
+            if (missingReceiver && !triedInject) {
+              console.log('[popup] no receiver detected, attempting to inject content script...');
               ensureContentScript(tabId).then((ok) => {
                 if (!ok) {
-                  console.warn('[popup] injection failed, cannot contact content script');
-                  resolve(null);
-                  return;
+                  console.warn('[popup] injection failed');
                 }
-                console.log('[popup] injection succeeded, retrying message send...');
-                // Retry after injection with longer delay
-                setTimeout(() => attemptSend(attempt + 1), 1000);
+                // give the injected script more time to register and Netflix to load
+                setTimeout(() => attemptSend(attempt + 1, true), 800);
+              }).catch(() => {
+                setTimeout(() => attemptSend(attempt + 1, true), 800);
               });
               return;
             }
 
-            // Give up after all retries
-            if (attempt >= retries) {
-              console.warn('[popup] exhausted retries, giving up');
-              resolve(null);
+            // If we've tried injection or it wasn't the missing-receiver case, retry a few times with backoff
+            if (attempt < retries) {
+              const delayMs = 500 + attempt * 400;
+              console.log('[popup] will retry sendMessage after', delayMs, 'ms');
+              setTimeout(() => attemptSend(attempt + 1, triedInject), delayMs);
               return;
             }
 
+            console.warn('[popup] sendMessage failed after retries, giving up');
             resolve(null);
           } else {
             console.log('[popup] got response:', response);
@@ -81,7 +80,7 @@ async function sendToContent(tabId, msg, retries = 5) {
         resolve(null);
       }
     };
-    attemptSend(0);
+    attemptSend(0, false);
   });
 }
 
@@ -105,22 +104,48 @@ async function updateNowWatching() {
     return;
   }
   
-  const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
-  console.log('[popup] get-now-watching response:', resp);
-  
+  // Show loading state
   const titleEl = document.getElementById('movie-title');
   const epEl = document.getElementById('movie-episode');
+  titleEl.textContent = 'Detecting...';
+  epEl.textContent = 'Please wait';
   
-  if (resp && resp.title) {
+  // Try multiple times with increasing delays to handle Netflix's dynamic loading
+  let resp = null;
+  const maxAttempts = 3;
+  
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) {
+      console.log(`[popup] attempt ${i + 1} of ${maxAttempts}`);
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second between attempts
+    }
+    
+    resp = await sendToContent(tab.id, { type: 'get-now-watching' });
+    console.log('[popup] get-now-watching response:', resp);
+    
+    // If we got a valid title, break out of the loop
+    if (resp && resp.title && resp.title !== 'Netflix') {
+      break;
+    }
+  }
+  
+  if (resp && resp.title && resp.title !== 'Netflix') {
     console.log('[popup] setting title to:', resp.title);
     nowWatchingTitle = resp.title;
     titleEl.textContent = resp.title;
     epEl.textContent = resp.episode || '';
   } else {
-    console.log('[popup] no title in response, setting to default');
+    console.log('[popup] no valid title found after all attempts');
     nowWatchingTitle = null;
     titleEl.textContent = '—';
-    epEl.textContent = resp ? 'Not playing' : 'Content script not loaded';
+    
+    if (!resp) {
+      epEl.textContent = 'Content script not loaded';
+    } else if (resp.title === 'Netflix') {
+      epEl.textContent = 'No show playing - start playback';
+    } else {
+      epEl.textContent = 'Not playing or unable to detect';
+    }
   }
 }
 
@@ -299,9 +324,11 @@ async function loadAnnotations() {
 function initializePopup() {
   console.log('[popup] initializing journal popup...');
   
-  // Initial load
-  updateNowWatching();
-  showJournalList();
+  // Initial load - delay slightly to let popup fully render
+  setTimeout(() => {
+    updateNowWatching();
+    showJournalList();
+  }, 100);
 
   // ---- Tab buttons ----
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -315,7 +342,9 @@ function initializePopup() {
   const addBtn = document.getElementById('btn-add-to-journal');
   if (addBtn) {
     addBtn.addEventListener('click', async () => {
-      // Try to ensure we have the latest title from the content script (retry if needed)
+      addBtn.disabled = true;
+      addBtn.textContent = 'Adding...';
+      
       try {
         const tab = await queryActive();
         if (!tab) {
@@ -323,13 +352,31 @@ function initializePopup() {
           return;
         }
 
-        // Ask content script for the current title (sendToContent will auto-inject if missing)
-        const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
-        const title = resp && resp.title ? resp.title : null;
+        if (!tab.url || !tab.url.includes('netflix.com')) {
+          alert('Please navigate to Netflix first');
+          return;
+        }
+
+        // Try multiple times to get the title with longer delays
+        let title = null;
+        const maxAttempts = 3;
+        
+        for (let i = 0; i < maxAttempts; i++) {
+          if (i > 0) {
+            console.log(`[popup] add-to-journal attempt ${i + 1} of ${maxAttempts}`);
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+          
+          const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
+          if (resp && resp.title && resp.title !== 'Netflix') {
+            title = resp.title;
+            break;
+          }
+        }
 
         if (!title) {
           // Offer manual entry as a fallback
-          const manual = prompt('Could not detect the show title. Enter the title manually:');
+          const manual = prompt('Could not detect the show title automatically.\n\nThis can happen if:\n• No video is playing\n• Netflix is still loading\n• The page structure has changed\n\nEnter the title manually:');
           if (!manual || !manual.trim()) {
             alert('No title provided');
             return;
@@ -344,6 +391,9 @@ function initializePopup() {
       } catch (e) {
         console.error('[popup] add-to-journal error:', e);
         alert('Error: ' + (e && e.message ? e.message : 'unknown'));
+      } finally {
+        addBtn.disabled = false;
+        addBtn.textContent = '+ Add to Journal';
       }
     });
   }
@@ -385,20 +435,7 @@ function initializePopup() {
       refreshBtn.textContent = '⏳';
       refreshBtn.disabled = true;
       try {
-        const tab = await queryActive();
-        if (!tab) {
-          alert('No active tab');
-          return;
-        }
-        const resp = await sendToContent(tab.id, { type: 'get-now-watching' });
-        console.log('[popup] refresh-title response:', resp);
-        if (resp && resp.title) {
-          document.getElementById('movie-title').textContent = resp.title;
-          document.getElementById('movie-episode').textContent = resp.episode || '';
-          nowWatchingTitle = resp.title;
-        } else {
-          document.getElementById('movie-title').textContent = 'Could not refresh';
-        }
+        await updateNowWatching();
       } catch (e) {
         console.error('[popup] refresh-title error:', e);
       } finally {
@@ -499,9 +536,6 @@ function initializePopup() {
     });
   }
 
-  // ---- Show User ID Button ----
-  // (Firebase removed) no UID button wiring
-
   // ---- Playback Control Buttons ----
   const playBtn = document.getElementById('btn-play');
   if (playBtn) {
@@ -520,7 +554,6 @@ function initializePopup() {
       await sendToContent(tab.id, { type: 'pause' });
     });
   }
-
 
   // ---- Refresh When Popup Opened Again ----
   document.addEventListener('visibilitychange', () => {
@@ -546,4 +579,3 @@ if (document.readyState === 'loading') {
 }
 
 console.log('[popup] script loaded, waiting for DOM...');
-

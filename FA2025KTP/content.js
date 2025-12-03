@@ -1,244 +1,522 @@
-// Netflix-optimized content script for title detection
-console.log('[content-KTP] Script started on', location.href);
+// ================================================================================
+// CONTENT.JS - Netflix Title Detection (Optimized)
+// Runs on Netflix pages to extract show/movie titles
+// ================================================================================
+
+console.log('='.repeat(80));
+console.log('[content] *** CONTENT SCRIPT IS LOADING ***');
+console.log('[content] Location:', location.href);
+console.log('[content] Timestamp:', new Date().toISOString());
+console.log('[content] Document ready state:', document.readyState);
+console.log('='.repeat(80));
 
 // ========== REGISTER MESSAGE LISTENER IMMEDIATELY ==========
 // This is the FIRST thing we do, before anything else
-console.log('[content-KTP] Registering message listener...');
+console.log('[content] Registering message listener...');
 
 try {
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    console.log('[content-KTP] Message received:', msg?.type);
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    console.log('[content] Message received:', message?.type);
     
-    try {
-      if (msg?.type === 'get-now-watching') {
-        const title = getTitleNow();
-        const episode = getEpisodeNow();
-        console.log('[content-KTP] Responding with title:', title);
-        sendResponse({ title, episode });
-        return true;
-      } 
-      else if (msg?.type === 'query-current-time') {
-        const video = getVideoElement();
-        console.log('[content-KTP] Responding with currentTime:', video?.currentTime);
-        sendResponse({ currentTime: video ? video.currentTime : null });
-        return true;
-      } 
-      else if (msg?.type === 'debug-title-candidates') {
-        const candidates = [];
-        try {
-          // meta tags
-          const metaKeys = ['og:title', 'twitter:title', 'title'];
-          metaKeys.forEach(k => {
-            const m = document.querySelector(`meta[property="${k}"]`) || document.querySelector(`meta[name="${k}"]`);
-            if (m && m.content) candidates.push({ source: 'meta', key: k, selector: m.outerHTML, text: m.content });
+    (async () => {
+      try {
+        if (message?.type === 'ping') {
+          console.log('[content] Responding to ping');
+          sendResponse({ pong: true, timestamp: Date.now() });
+        }
+        else if (message?.type === 'get-now-watching') {
+          const info = await getCurrentWatching();
+          console.log('[content] Responding with watching info:', info);
+          sendResponse(info);
+        }
+        else if (message?.type === 'debug-title-candidates') {
+          const debug = debugTitleCandidates();
+          console.log('[content] Responding with debug candidates:', debug.candidates.length);
+          sendResponse(debug);
+        }
+        else if (message?.type === 'query-current-time') {
+          const video = getVideoElement();
+          console.log('[content] Responding with currentTime:', video?.currentTime);
+          sendResponse({ 
+            currentTime: video ? video.currentTime : null,
+            duration: video ? video.duration : null
           });
-
-          // document.title
-          if (document.title) candidates.push({ source: 'document.title', selector: 'document.title', text: document.title });
-
-          // explicit netflix selectors
-          const explicit = [
-            'h1[data-uia="video-title"]',
-            '[data-uia="video-title-container"] h1',
-            '.player-title-card h1',
-            '.player-title',
-            '.previewModal--player-title',
-            '.title-name',
-            '.previewModalTitle',
-          ];
-          explicit.forEach(sel => {
-            const el = document.querySelector(sel);
-            if (el && el.innerText) candidates.push({ source: 'explicit', selector: sel, text: el.innerText.trim() });
-          });
-
-          // fuzzy search for visible short text nodes
-          const fuzzy = Array.from(document.querySelectorAll('h1,h2,h3,span,div'))
-            .filter(n => n && n.innerText && n.innerText.trim().length > 3 && n.innerText.trim().length < 120)
-            .slice(0, 80);
-          fuzzy.forEach((n, i) => {
-            candidates.push({ source: 'fuzzy', index: i, selector: n.tagName.toLowerCase(), text: n.innerText.trim().slice(0, 200) });
-          });
-
-          // player area scan
-          const player = document.querySelector('.nf-player-container') || document.querySelector('#appMountPoint') || document.querySelector('[data-uia="video-canvas"]');
-          if (player) {
-            const near = Array.from(player.querySelectorAll('h1,h2,h3,span,div'))
-              .filter(n => n && n.innerText && n.innerText.trim().length > 3 && n.innerText.trim().length < 120)
-              .slice(0, 40);
-            near.forEach((n, i) => candidates.push({ source: 'player-area', index: i, selector: n.tagName.toLowerCase(), text: n.innerText.trim().slice(0,200) }));
+        }
+        else if (message?.type === 'play') {
+          const video = getVideoElement();
+          if (video) {
+            video.play().catch(e => console.warn('[content] play() error:', e?.message));
+            sendResponse({ success: true });
+          } else {
+            sendResponse({ success: false, error: 'No video element' });
           }
-
-          // URL fallback
-          if (location && location.pathname) candidates.push({ source: 'url', selector: 'location.pathname', text: location.pathname });
-        } catch (err) {
-          candidates.push({ source: 'error', text: String(err) });
         }
-        console.log('[content-KTP] Responding with', candidates.length, 'candidates');
-        sendResponse({ candidates });
-        return true;
-      } 
-      else if (msg?.type === 'play') {
-        const video = getVideoElement();
-        if (video) {
-          video.play().catch(e => console.warn('[content-KTP] play() error:', e?.message));
+        else if (message?.type === 'pause') {
+          const video = getVideoElement();
+          if (video) {
+            video.pause();
+            sendResponse({ success: true });
+          } else {
+            sendResponse({ success: false, error: 'No video element' });
+          }
         }
-        console.log('[content-KTP] Responding to play request');
-        sendResponse({ ok: !!video });
-        return true;
-      } 
-      else if (msg?.type === 'pause') {
-        const video = getVideoElement();
-        if (video) video.pause();
-        console.log('[content-KTP] Responding to pause request');
-        sendResponse({ ok: !!video });
-        return true;
-      } 
-      else if (msg?.type === 'sub-toggle') {
-        console.log('[content-KTP] Responding to sub-toggle request');
-        sendResponse({ ok: toggleSubs() });
-        return true;
+        else {
+          console.log('[content] Unknown message type:', message?.type);
+          sendResponse({ error: 'Unknown message type' });
+        }
+      } catch (err) {
+        console.error('[content] Handler error:', err?.message);
+        sendResponse({ error: err?.message });
       }
-      else {
-        console.log('[content-KTP] Unknown message type:', msg?.type);
-        sendResponse({ error: 'unknown type' });
-        return true;
-      }
-    } catch (err) {
-      console.error('[content-KTP] Handler error:', err?.message);
-      sendResponse({ error: err?.message });
-      return true;
-    }
+    })();
+    
+    // Return true to indicate we'll send response asynchronously
+    return true;
   });
-  console.log('[content-KTP] Message listener registered successfully');
-  console.log('[content-KTP] Message listener registered successfully ');
+  
+  console.log('[content] Message listener registered successfully');
 } catch (err) {
-  console.error('[content-KTP] Failed to register listener:', err?.message);
+  console.error('[content] Failed to register listener:', err?.message);
 }
 
 // ========== HELPER FUNCTIONS ==========
 
-function getTitleNow() {
-  // Strategy 1: meta tags (og:title, twitter:title, name=title)
-  const metaKeys = [
-    'meta[property="og:title"]',
-    'meta[name="title"]',
-    'meta[name="twitter:title"]',
-    'meta[property="og:video:title"]'
-  ];
-  for (const sel of metaKeys) {
-    const m = document.querySelector(sel);
-    if (m && m.content && m.content !== 'Netflix') {
-      return cleanupTitle(m.content);
+/**
+ * Extract clean title from Netflix page
+ * Uses multiple strategies in priority order
+ */
+function extractTitle() {
+  console.log('[content] extractTitle called');
+  console.log('[content] Document ready state:', document.readyState);
+  console.log('[content] Body innerHTML length:', document.body?.innerHTML?.length || 0);
+  
+  // STRATEGY 1: Structured metadata (most reliable)
+  try {
+    const metaSelectors = [
+      'meta[property="og:title"]',
+      'meta[name="twitter:title"]',
+      'meta[name="title"]'
+    ];
+    
+    for (const selector of metaSelectors) {
+      const meta = document.querySelector(selector);
+      console.log(`[content] Checking ${selector}:`, meta?.content || 'not found');
+      if (meta && meta.content && isValidTitle(meta.content)) {
+        const cleaned = cleanupTitle(meta.content);
+        console.log('[content] ✓ Found title in meta tag:', cleaned);
+        return cleaned;
+      }
     }
+  } catch (e) {
+    console.warn('[content] Meta tag check error:', e?.message);
   }
-
-  // Strategy 2: document.title (strip suffixes)
-  if (document.title && !/Netflix/i.test(document.title)) {
-    return cleanupTitle(document.title);
-  }
-
-  // Strategy 3: explicit known selectors
-  const selectors = [
+  
+  // STRATEGY 2: High priority explicit Netflix selectors
+  const highPrioritySelectors = [
     'h1[data-uia="video-title"]',
     '[data-uia="video-title-container"] h1',
     '.player-title-card h1',
     '.player-title',
     '.previewModal--player-title',
-    '.title-name',
     '.previewModalTitle',
-    'h1', 'h2'
+    '.title-name'
   ];
-  for (const s of selectors) {
-    const el = document.querySelector(s);
-    if (el) {
-      const txt = (el.innerText || el.textContent || '').trim();
-      if (isValidTitle(txt)) return cleanupTitle(txt);
+  
+  console.log('[content] Trying high-priority selectors...');
+  for (const selector of highPrioritySelectors) {
+    try {
+      const el = document.querySelector(selector);
+      const text = el ? (el.innerText || el.textContent || '').trim() : null;
+      console.log(`[content] ${selector}:`, text || 'not found', el ? `(visible: ${isVisible(el)})` : '');
+      
+      if (el && isVisible(el) && text && isValidTitle(text)) {
+        const cleaned = cleanupTitle(text);
+        console.log('[content] ✓ Found title with high-priority selector:', cleaned);
+        return cleaned;
+      }
+    } catch (err) {
+      console.warn(`[content] Error with selector ${selector}:`, err?.message);
     }
   }
-
-  // Strategy 4: search for any element with "title" in class or id
-  const fuzzy = Array.from(document.querySelectorAll('[class*="title"],[id*="title"]'));
-  for (const el of fuzzy) {
-    const txt = (el.innerText || el.textContent || '').trim();
-    if (isValidTitle(txt)) return cleanupTitle(txt);
-  }
-
-  // Strategy 5: scan the player area for visible headings
-  const playerAreas = ['[data-uia="video-canvas"]', '.NFPlayer', '.watch-video', '#appMountPoint'];
-  for (const pa of playerAreas) {
-    const container = document.querySelector(pa);
-    if (!container) continue;
-    const candidates = container.querySelectorAll('h1,h2,h3,span,div');
-    for (const c of candidates) {
-      const txt = (c.innerText || c.textContent || '').trim();
-      if (isValidTitle(txt)) return cleanupTitle(txt);
+  
+  // STRATEGY 3: Player-area scan (search within player containers)
+  const playerContainers = [
+    '[data-uia="video-canvas"]',
+    '.nf-player-container',
+    '.NFPlayer',
+    '.watch-video'
+  ];
+  
+  console.log('[content] Scanning player areas...');
+  for (const containerSelector of playerContainers) {
+    try {
+      const container = document.querySelector(containerSelector);
+      if (!container) {
+        console.log(`[content] Container ${containerSelector}: not found`);
+        continue;
+      }
+      
+      console.log(`[content] Scanning inside ${containerSelector}...`);
+      
+      // Look for divs and spans that might contain the title
+      // Netflix often uses plain divs for the title display
+      const candidates = Array.from(container.querySelectorAll('div, span'))
+        .filter(el => {
+          const text = (el.innerText || el.textContent || '').trim();
+          // Look for text that contains a timestamp followed by text
+          // or just text without timestamp
+          return text.length > 3 && text.length < 200 && isVisible(el);
+        });
+      
+      console.log(`[content] Found ${candidates.length} candidate elements in ${containerSelector}`);
+      
+      // Try to find elements with timestamp + title pattern
+      for (const el of candidates) {
+        const text = (el.innerText || el.textContent || '').trim();
+        
+        // Check if it matches timestamp pattern
+        if (/^\d{1,2}:\d{2}(?::\d{2})?\s+\S/.test(text)) {
+          const cleaned = cleanupTitle(text);
+          console.log(`[content] Found timestamp+title pattern: "${text}" -> cleaned: "${cleaned}"`);
+          
+          if (isValidTitle(cleaned) && cleaned.length > 2) {
+            console.log('[content] ✓ Found title in player area (with timestamp):', cleaned);
+            return cleaned;
+          }
+        }
+      }
+      
+      // Also try regular headings
+      const headings = Array.from(container.querySelectorAll('h1, h2, h3'))
+        .filter(el => isVisible(el));
+      
+      for (const heading of headings) {
+        const text = (heading.innerText || heading.textContent || '').trim();
+        const cleaned = cleanupTitle(text);
+        console.log(`[content] Checking heading: "${text}" -> cleaned: "${cleaned}"`);
+        
+        if (isValidTitle(cleaned)) {
+          console.log('[content] ✓ Found title in player area heading:', cleaned);
+          return cleaned;
+        }
+      }
+    } catch (err) {
+      console.warn(`[content] Error scanning ${containerSelector}:`, err?.message);
     }
   }
-
-  // Strategy 6: fallback to URL reading (watch/<id>)
-  const m = location.href.match(/\/watch\/(\d+)/);
-  if (m && m[1]) return 'Video ' + m[1];
-
+  
+  // STRATEGY 4: Document title fallback
+  try {
+    if (document.title && isValidTitle(document.title)) {
+      const cleaned = cleanupTitle(document.title);
+      console.log('[content] Using document.title as fallback:', cleaned);
+      return cleaned;
+    }
+  } catch (e) {
+    console.warn('[content] Document title check error:', e?.message);
+  }
+  
+  // STRATEGY 5: URL fallback (last resort)
+  const urlMatch = location.href.match(/\/watch\/(\d+)/);
+  if (urlMatch && urlMatch[1]) {
+    console.log('[content] Using URL ID as last resort');
+    return 'Video ' + urlMatch[1];
+  }
+  
+  console.log('[content] No title found with any strategy');
   return null;
 }
 
+/**
+ * Clean up title text by removing Netflix branding and artifacts
+ */
 function cleanupTitle(raw) {
-  let cleaned = raw.replace(/\s*\|\s*Netflix$/i, '').replace(/\s*-\s*Netflix$/i, '').trim();
-  // Remove leading time format (HH:MM:SS or MM:SS) that Netflix sometimes shows
-  cleaned = cleaned.replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s+/, '').trim();
-  return cleaned;
+  if (!raw) return '';
+  
+  let cleaned = raw.trim();
+  
+  // Remove Netflix suffix patterns
+  cleaned = cleaned.replace(/\s*\|\s*Netflix$/i, '');
+  cleaned = cleaned.replace(/\s*-\s*Netflix$/i, '');
+  
+  // Remove leading time format (HH:MM:SS or H:MM:SS or MM:SS) that Netflix shows
+  // This handles formats like "1:35:13 The Martian"
+  cleaned = cleaned.replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s+/g, '');
+  
+  // Also try to extract title if timestamp appears anywhere in the string
+  // Match pattern: [timestamp] [title]
+  const timeMatch = cleaned.match(/^\d{1,2}:\d{2}(?::\d{2})?\s+(.+)$/);
+  if (timeMatch && timeMatch[1]) {
+    cleaned = timeMatch[1];
+  }
+  
+  // Remove common prefixes
+  cleaned = cleaned.replace(/^Watch\s+/i, '');
+  
+  return cleaned.trim();
 }
 
-// Returns true if element is likely visible to the user
+/**
+ * Check if an element is visible to the user
+ */
 function isVisible(el) {
   if (!el || !(el instanceof Element)) return false;
+  
   const style = window.getComputedStyle(el);
-  if (style && (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity || '1') === 0)) return false;
+  if (!style) return false;
+  
+  // Check CSS properties
+  if (style.display === 'none' || 
+      style.visibility === 'hidden' || 
+      parseFloat(style.opacity || '1') === 0) {
+    return false;
+  }
+  
+  // Check dimensions
   const rect = el.getBoundingClientRect();
-  if (!rect || rect.width === 0 || rect.height === 0) return false;
+  if (!rect || rect.width === 0 || rect.height === 0) {
+    return false;
+  }
+  
   return true;
 }
 
-// Filter out common overlay/consent texts that are not titles
-function isBlockedText(t) {
-  if (!t) return true;
-  const s = t.toString().trim().toLowerCase();
-  const blocked = [
-    'privacy', 'preference', 'preferences', 'cookie', 'consent', 'manage cookies', 'privacy preference center', 'accept cookies', 'cookie settings', 'gdpr'
+/**
+ * Check if text contains blocked/unwanted content
+ */
+function isBlockedText(text) {
+  if (!text) return true;
+  
+  const normalized = text.toString().trim().toLowerCase();
+  
+  const blockedPhrases = [
+    'privacy', 'preference', 'preferences', 'cookie', 'consent',
+    'manage cookies', 'privacy preference center', 'accept cookies',
+    'cookie settings', 'gdpr'
   ];
-  for (const b of blocked) if (s.includes(b)) return true;
+  
+  for (const phrase of blockedPhrases) {
+    if (normalized.includes(phrase)) return true;
+  }
+  
   return false;
 }
 
-function isValidTitle(t) {
-  if (!t) return false;
-  const clean = t.trim();
-  if (clean.length < 3 || clean.length > 200) return false;
-  if (/Netflix|Browse|My List/i.test(clean)) return false;
-  if (isBlockedText(clean)) return false;
+/**
+ * Validate if text looks like a valid title
+ */
+function isValidTitle(text) {
+  if (!text) return false;
+  
+  const cleaned = text.trim();
+  
+  // Length checks
+  if (cleaned.length < 2 || cleaned.length > 200) return false;
+  
+  // Skip if it's ONLY a timestamp
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(cleaned)) return false;
+  
+  // Skip generic Netflix UI text
+  if (/^(Netflix|Browse|My List|Home|Search)$/i.test(cleaned)) return false;
+  
+  // Skip blocked content
+  if (isBlockedText(cleaned)) return false;
+  
   return true;
 }
 
-function getEpisodeNow() {
-  const h3 = document.querySelector('h3[data-uia="episode-title"]');
-  if (h3?.innerText) return h3.innerText.trim();
+/**
+ * Extract episode information if available
+ */
+function extractEpisode() {
+  const episodeSelectors = [
+    'h3[data-uia="episode-title"]',
+    '[data-uia="episode-title"]',
+    '.video-title .ellipsize-text',
+    '.episode-title'
+  ];
+  
+  for (const selector of episodeSelectors) {
+    try {
+      const el = document.querySelector(selector);
+      if (el) {
+        const text = (el.innerText || el.textContent || '').trim();
+        if (text && text.length > 0 && text.length < 100) {
+          return text;
+        }
+      }
+    } catch (err) {
+      console.warn(`[content] Error with episode selector ${selector}:`, err?.message);
+    }
+  }
+  
   return null;
 }
 
+/**
+ * Get currently playing video element
+ */
 function getVideoElement() {
   return document.querySelector('video');
 }
 
-function toggleSubs() {
-  const video = getVideoElement();
-  if (!video?.textTracks) return false;
+/**
+ * Main function to get current watching info
+ * Retries with delays to handle Netflix's dynamic loading
+ */
+async function getCurrentWatching(retries = 2) {
+  console.log('[content] getCurrentWatching called, retries:', retries);
   
-  for (let i = 0; i < video.textTracks.length; i++) {
-    const mode = video.textTracks[i].mode;
-    video.textTracks[i].mode = mode === 'showing' ? 'hidden' : 'showing';
+  let title = extractTitle();
+  
+  // If no title found and we have retries left, wait and try again
+  if (!title && retries > 0) {
+    console.log('[content] No title found, waiting 800ms before retry...');
+    await new Promise(resolve => setTimeout(resolve, 800));
+    return getCurrentWatching(retries - 1);
   }
-  return true;
+  
+  const episode = extractEpisode();
+  const video = getVideoElement();
+  
+  return {
+    title: title || 'Netflix',
+    episode: episode,
+    hasVideo: !!video,
+    url: window.location.href
+  };
 }
 
-// ========== INITIALIZATION COMPLETE ==========
-console.log('[content-KTP] Initialization complete, ready for messages');
+/**
+ * Debug function to show all potential title candidates
+ */
+function debugTitleCandidates() {
+  const candidates = [];
+  
+  try {
+    // Meta tags
+    const metaKeys = ['og:title', 'twitter:title', 'title'];
+    metaKeys.forEach(key => {
+      const meta = document.querySelector(`meta[property="${key}"]`) || 
+                    document.querySelector(`meta[name="${key}"]`);
+      if (meta && meta.content) {
+        candidates.push({
+          source: 'meta',
+          key: key,
+          selector: meta.outerHTML.substring(0, 100),
+          text: meta.content
+        });
+      }
+    });
+    
+    // Document title
+    if (document.title) {
+      candidates.push({
+        source: 'document.title',
+        selector: 'document.title',
+        text: document.title
+      });
+    }
+    
+    // Explicit Netflix selectors
+    const explicitSelectors = [
+      'h1[data-uia="video-title"]',
+      '[data-uia="video-title-container"] h1',
+      '.player-title-card h1',
+      '.player-title',
+      '.previewModal--player-title',
+      '.title-name',
+      '.previewModalTitle'
+    ];
+    
+    explicitSelectors.forEach(selector => {
+      const el = document.querySelector(selector);
+      if (el && el.innerText) {
+        candidates.push({
+          source: 'explicit',
+          selector: selector,
+          text: el.innerText.trim()
+        });
+      }
+    });
+    
+    // Fuzzy search for visible text nodes
+    const fuzzyElements = Array.from(document.querySelectorAll('h1, h2, h3, span, div'))
+      .filter(el => {
+        const text = el.innerText?.trim();
+        return text && text.length > 3 && text.length < 120;
+      })
+      .slice(0, 80);
+    
+    fuzzyElements.forEach((el, idx) => {
+      candidates.push({
+        source: 'fuzzy',
+        index: idx,
+        selector: el.tagName.toLowerCase(),
+        text: el.innerText.trim().substring(0, 200)
+      });
+    });
+    
+    // Player area scan
+    const playerContainers = ['.nf-player-container', '#appMountPoint', '[data-uia="video-canvas"]'];
+    
+    playerContainers.forEach(containerSelector => {
+      const container = document.querySelector(containerSelector);
+      if (!container) return;
+      
+      const elements = Array.from(container.querySelectorAll('h1, h2, h3, span, div'))
+        .filter(el => {
+          const text = el.innerText?.trim();
+          return text && text.length > 3 && text.length < 120;
+        })
+        .slice(0, 40);
+      
+      elements.forEach((el, idx) => {
+        candidates.push({
+          source: 'player-area',
+          container: containerSelector,
+          index: idx,
+          selector: el.tagName.toLowerCase(),
+          text: el.innerText.trim().substring(0, 200)
+        });
+      });
+    });
+    
+    // URL fallback
+    if (location && location.pathname) {
+      candidates.push({
+        source: 'url',
+        selector: 'location.pathname',
+        text: location.pathname
+      });
+    }
+  } catch (err) {
+    candidates.push({
+      source: 'error',
+      text: String(err)
+    });
+  }
+  
+  return { candidates };
+}
+
+// ========== MUTATION OBSERVER ==========
+// Watch for Netflix's dynamic content loading
+
+const observer = new MutationObserver((mutations) => {
+  // Netflix loads content dynamically, so we cache the title when we see it
+  // This helps with subsequent queries
+  const title = extractTitle();
+  if (title && title !== 'Netflix') {
+    console.log('[content] Observer detected title change:', title);
+  }
+});
+
+// Start observing
+observer.observe(document.body, {
+  childList: true,
+  subtree: true
+});
+
+console.log('[content] Mutation observer started');
+console.log('[content] Initialization complete, ready for messages');

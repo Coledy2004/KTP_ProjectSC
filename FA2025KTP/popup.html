@@ -3,65 +3,362 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>KTP — Movie Journal</title>
+  <title>Movie Journal</title>
   <style>
     :root{
-      --bg:#141414; /* Netflix dark */
-      --accent:#e50914; /* Netflix red */
-      --muted:#b3b3b3;
-      --card:#1f1f1f;
+      --bg:#0f0f11;
+      --accent:#e50914;
+      --accent-2:#ff4b4b;
+      --muted:#cfcfcf;
+      --card:#121213;
+      --card-2:rgba(255,255,255,0.02);
+      --glass:rgba(255,255,255,0.03);
       --success:#31a24c;
+      --shadow:0 8px 24px rgba(0,0,0,0.6);
     }
-    * {
-      box-sizing: border-box;
-    }
-    html,body{margin:0;padding:0;font-family:Inter, Arial, sans-serif;background:var(--bg);color:#fff;width:500px;height:auto;overflow-y:auto}
-    .header{display:flex;align-items:center;gap:10px;padding:14px;border-bottom:1px solid rgba(255,255,255,0.1)}
-    .logo{font-weight:800;color:var(--accent);font-size:20px}
-    .subtitle{color:var(--muted);font-size:12px}
-    .content{padding:12px;display:grid;grid-template-columns:1fr;gap:10px}
-    .card{background:var(--card);padding:12px;border-radius:8px}
-    .row{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    button, .btn{background:var(--accent);color:#fff;border:none;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;transition:background 0.2s}
-    button:hover{background:rgba(229,9,20,0.8)}
-    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.2)}
-    button.secondary:hover{background:rgba(255,255,255,0.05)}
-    button.danger{background:#c41e3a}
-    button.danger:hover{background:#a01828}
-    input[type="text"], textarea{width:100%;padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:#0f0f0f;color:#fff;font-family:inherit;font-size:13px}
-    input[type="text"]:focus, textarea:focus{outline:none;border-color:var(--accent)}
-    label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px;font-weight:500}
-    .title{font-weight:700;font-size:14px}
-    .muted{color:var(--muted);font-size:12px}
-    .small{font-size:12px}
-    .footer{padding:12px;text-align:center;color:var(--muted);font-size:11px;border-top:1px solid rgba(255,255,255,0.1)}
+  
+    * { box-sizing: border-box; }
     
+    html, body {
+      margin:0;
+      padding:0;
+      font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+      background:linear-gradient(180deg, #0b0b0b 0%, #0f0f11 100%);
+      color:#fff;
+      width:720px;
+      max-width:720px;
+      min-width:540px;
+      height:auto;
+      overflow-y:auto;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+    
+    .header {
+      display:flex;
+      align-items:center;
+      gap:12px;
+      padding:18px 20px;
+      border-bottom:1px solid rgba(255,255,255,0.06);
+      background:linear-gradient(90deg, rgba(255,255,255,0.02), transparent);
+    }
+    
+    .logo {
+      font-weight:900;
+      font-size:28px;
+      line-height:1;
+    }
+    
+    .header-text {
+      flex:1;
+    }
+    
+    .title {
+      font-weight:800;
+      font-size:18px;
+      line-height:1.2;
+      background:linear-gradient(90deg, var(--accent), var(--accent-2));
+      -webkit-background-clip:text;
+      background-clip:text;
+      -webkit-text-fill-color:transparent;
+    }
+    
+    .subtitle {
+      color:var(--muted);
+      font-size:12px;
+      margin-top:2px;
+    }
+    
+    .content {
+      padding:18px;
+      display:grid;
+      grid-template-columns:1fr;
+      gap:14px;
+    }
+    
+    .card {
+      background:linear-gradient(180deg, var(--card), rgba(20,20,20,0.9));
+      padding:16px;
+      border-radius:12px;
+      box-shadow:var(--shadow);
+      border:1px solid var(--card-2);
+    }
+    
+    .row {
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+    
+    button, .btn {
+      background:linear-gradient(90deg, var(--accent), var(--accent-2));
+      color:#fff;
+      border:none;
+      padding:10px 14px;
+      border-radius:8px;
+      cursor:pointer;
+      font-size:14px;
+      font-weight:600;
+      transition:transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+      box-shadow:0 6px 14px rgba(229,9,20,0.2);
+      font-family:inherit;
+    }
+    
+    button:hover {
+      transform:translateY(-2px);
+      box-shadow:0 10px 22px rgba(229,9,20,0.3);
+    }
+    
+    button:active {
+      transform:translateY(0);
+    }
+    
+    button:disabled {
+      opacity:0.5;
+      cursor:not-allowed;
+      transform:none;
+    }
+    
+    button.secondary {
+      background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.1);
+      color:#fff;
+      padding:8px 12px;
+      box-shadow:none;
+    }
+    
+    button.secondary:hover {
+      background:rgba(255,255,255,0.08);
+      transform:translateY(-1px);
+    }
+    
+    button.danger {
+      background:#c41e3a;
+      box-shadow:0 6px 14px rgba(196,30,58,0.2);
+    }
+    
+    button.danger:hover {
+      background:#a01828;
+      box-shadow:0 10px 22px rgba(196,30,58,0.3);
+    }
+    
+    input[type="text"], textarea {
+      width:100%;
+      padding:10px 12px;
+      border-radius:8px;
+      border:1px solid rgba(255,255,255,0.08);
+      background:rgba(0,0,0,0.4);
+      color:#fff;
+      font-family:inherit;
+      font-size:14px;
+      transition:border-color .2s ease, box-shadow .2s ease;
+    }
+    
+    input[type="text"]:focus, textarea:focus {
+      outline:none;
+      border-color:var(--accent);
+      box-shadow:0 6px 24px rgba(229,9,20,0.1);
+    }
+    
+    textarea {
+      resize:vertical;
+      min-height:60px;
+    }
+    
+    label {
+      font-size:13px;
+      color:var(--muted);
+      display:block;
+      margin-bottom:8px;
+      font-weight:600;
+    }
+    
+    .muted {
+      color:var(--muted);
+      font-size:13px;
+    }
+    
+    .small {
+      font-size:13px;
+    }
+    
+    .footer {
+      padding:16px;
+      text-align:center;
+      color:var(--muted);
+      font-size:11px;
+      border-top:1px solid rgba(255,255,255,0.06);
+      background:rgba(0,0,0,0.2);
+    }
+
     /* Journal-specific styles */
-    .show-title-display{font-size:16px;font-weight:700;color:var(--accent);margin-bottom:8px}
-    .annotation-item{background:rgba(255,255,255,0.05);padding:10px;border-radius:6px;margin-bottom:8px;border-left:3px solid var(--accent)}
-    .annotation-time{color:var(--accent);font-weight:700;font-size:13px}
-    .annotation-text{color:#fff;font-size:12px;margin-top:4px;word-break:break-word}
-    .annotation-date{color:var(--muted);font-size:10px;margin-top:4px}
-    .no-data{color:var(--muted);font-style:italic;font-size:12px;padding:10px;text-align:center}
-    .list-container{max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.3);border-radius:6px;padding:8px}
-    .tab-buttons{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
-    .tab-btn{padding:6px 12px;font-size:12px;border-radius:4px;cursor:pointer;background:transparent;border:1px solid rgba(255,255,255,0.2);color:var(--muted);transition:all 0.2s}
-    .tab-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-    .text-success{color:var(--success)}
-    .margin-top{margin-top:10px}
-    .flex-gap{display:flex;gap:8px}
-    /* Playback controls: stack buttons and make them full-width */
-    .playback-controls{display:flex;flex-direction:column;gap:8px}
-    .playback-controls button{width:100%}
-    /* Make the Play button use the main accent red to stand out */
-    #btn-play{background:var(--accent);color:#fff;border:none}
-    #btn-play:hover{background:rgba(229,9,20,0.9)}
+    .show-title-display {
+      font-size:20px;
+      font-weight:800;
+      color:#fff;
+      line-height:1.3;
+    }
+    
+    .annotation-item {
+      background:rgba(255,255,255,0.03);
+      padding:12px;
+      border-radius:8px;
+      margin-bottom:10px;
+      border-left:4px solid var(--accent);
+      transition:background .2s ease;
+    }
+    
+    .annotation-item:hover {
+      background:rgba(255,255,255,0.05);
+    }
+    
+    .annotation-time {
+      color:var(--accent);
+      font-weight:700;
+      font-size:13px;
+    }
+    
+    .annotation-text {
+      color:#fff;
+      font-size:14px;
+      margin-top:6px;
+      word-break:break-word;
+      line-height:1.5;
+    }
+    
+    .annotation-date {
+      color:var(--muted);
+      font-size:11px;
+      margin-top:6px;
+    }
+    
+    .annotation-delete-btn {
+      opacity:0.6;
+    }
+    
+    .annotation-delete-btn:hover {
+      opacity:1;
+    }
+    
+    .no-data {
+      color:var(--muted);
+      font-style:italic;
+      font-size:13px;
+      padding:16px;
+      text-align:center;
+    }
+    
+    .list-container {
+      max-height:420px;
+      overflow-y:auto;
+      background:linear-gradient(180deg, rgba(0,0,0,0.2), rgba(0,0,0,0.15));
+      border-radius:8px;
+      padding:10px;
+    }
+    
+    .tab-buttons {
+      display:flex;
+      gap:8px;
+      margin-bottom:14px;
+      flex-wrap:wrap;
+    }
+    
+    .tab-btn {
+      padding:8px 16px;
+      font-size:13px;
+      border-radius:8px;
+      cursor:pointer;
+      background:transparent;
+      border:1px solid rgba(255,255,255,0.08);
+      color:var(--muted);
+      transition:all 0.2s ease;
+      font-weight:600;
+    }
+    
+    .tab-btn:hover {
+      background:rgba(255,255,255,0.05);
+      border-color:rgba(255,255,255,0.12);
+    }
+    
+    .tab-btn.active {
+      background:linear-gradient(90deg, var(--accent), var(--accent-2));
+      color:#fff;
+      border-color:transparent;
+      box-shadow:0 4px 12px rgba(229,9,20,0.2);
+    }
+    
+    .text-success {
+      color:var(--success);
+    }
+    
+    .margin-top {
+      margin-top:12px;
+    }
+    
+    .flex-gap {
+      display:flex;
+      gap:10px;
+    }
+
+    /* Scrollbar styling */
+    .list-container::-webkit-scrollbar, pre::-webkit-scrollbar {
+      height:8px;
+      width:8px;
+    }
+    
+    .list-container::-webkit-scrollbar-track, pre::-webkit-scrollbar-track {
+      background:transparent;
+    }
+    
+    .list-container::-webkit-scrollbar-thumb, pre::-webkit-scrollbar-thumb {
+      background:rgba(255,255,255,0.1);
+      border-radius:8px;
+    }
+    
+    .list-container::-webkit-scrollbar-thumb:hover, pre::-webkit-scrollbar-thumb:hover {
+      background:rgba(255,255,255,0.15);
+    }
+    
+    pre {
+      white-space:pre-wrap;
+      word-wrap:break-word;
+      line-height:1.4;
+    }
+    
+    .show-delete-btn {
+      opacity:0.7;
+      transition:opacity .2s ease;
+    }
+    
+    .show-delete-btn:hover {
+      opacity:1;
+    }
+    
+    .playback-controls {
+      display:flex;
+      gap:8px;
+    }
+    
+    .playback-controls button {
+      flex:1;
+    }
+    
+    #btn-play {
+      background:var(--success);
+      box-shadow:0 6px 14px rgba(49,162,76,0.2);
+    }
+    
+    #btn-play:hover {
+      background:#28a745;
+      box-shadow:0 10px 22px rgba(49,162,76,0.3);
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <div class="logo">📖</div>
-    <div>
+    <div class="header-text">
       <div class="title">Movie Journal</div>
       <div class="subtitle">Track & annotate your shows</div>
     </div>
@@ -70,17 +367,17 @@
   <div class="content">
     <!-- Now Watching / Add to Journal -->
     <div class="card" id="now-watching-card">
-      <div class="small muted">Now watching</div>
+      <div class="small muted" style="margin-bottom:8px">Now watching</div>
       <div style="display:flex;gap:8px;align-items:flex-start">
         <div class="show-title-display" id="movie-title" style="flex:1">—</div>
-        <button id="btn-refresh-title" class="secondary" style="padding:4px 8px;font-size:12px;margin-top:2px" title="Refresh title">🔄</button>
+        <button id="btn-refresh-title" class="secondary" style="padding:6px 10px;font-size:14px" title="Refresh title">🔄</button>
       </div>
-      <div class="muted" id="movie-episode" style="margin-top:4px">Not detected</div>
-      <button id="btn-add-to-journal" style="margin-top:10px;width:100%">+ Add to Journal</button>
-      <div style="margin-top:8px;display:flex;gap:8px">
-        <button id="btn-debug-title" class="secondary" style="flex:1;padding:6px;font-size:12px">🔍 Debug title</button>
+      <div class="muted" id="movie-episode" style="margin-top:6px">Not detected</div>
+      <button id="btn-add-to-journal" style="margin-top:12px;width:100%">+ Add to Journal</button>
+      <div style="margin-top:10px">
+        <button id="btn-debug-title" class="secondary" style="width:100%;padding:8px;font-size:12px">🔍 Debug Title Detection</button>
       </div>
-      <pre id="debug-results" style="display:none;margin-top:8px;padding:8px;background:#0b0b0b;border-radius:6px;color:var(--muted);font-size:11px;max-height:180px;overflow:auto"></pre>
+      <pre id="debug-results" style="display:none;margin-top:10px;padding:10px;background:rgba(0,0,0,0.5);border-radius:8px;color:var(--muted);font-size:11px;max-height:200px;overflow:auto;border:1px solid rgba(255,255,255,0.06)"></pre>
     </div>
 
     <!-- Journal Entry View (shown when show is selected) -->
@@ -93,58 +390,58 @@
 
       <!-- Info & Review Tab -->
       <div id="tab-info" class="tab-content">
-        <div class="small muted">Show title</div>
+        <div class="small muted" style="margin-bottom:6px">Show title</div>
         <div class="show-title-display" id="journal-show-title">—</div>
         
-        <label for="review" style="margin-top:12px">Review (optional)</label>
-        <textarea id="review" rows="3" placeholder="What did you think of this show?"></textarea>
-        <button id="btn-save-review" style="margin-top:8px">Save Review</button>
+        <label for="review" style="margin-top:16px">Review (optional)</label>
+        <textarea id="review" rows="4" placeholder="What did you think of this show?"></textarea>
+        <button id="btn-save-review" style="margin-top:10px;width:100%">💾 Save Review</button>
 
-        <div style="margin-top:12px">
+        <div style="margin-top:16px">
           <label>Add annotation at current timestamp</label>
           <textarea id="annotation-input" rows="2" placeholder="Your note about this moment..."></textarea>
-          <div class="flex-gap" style="margin-top:8px">
-            <button id="btn-add-annotation" style="flex:1">Add Annotation</button>
-            <button id="btn-check-time" class="secondary" style="flex:1">Current Time</button>
+          <div class="flex-gap" style="margin-top:10px">
+            <button id="btn-add-annotation" style="flex:1">📝 Add Note</button>
+            <button id="btn-check-time" class="secondary" style="flex:1">⏱ Current Time</button>
           </div>
-          <div id="time-display" class="muted small" style="margin-top:4px"></div>
+          <div id="time-display" class="muted small" style="margin-top:6px;text-align:center"></div>
         </div>
       </div>
 
       <!-- Annotations Tab -->
       <div id="tab-annotations" class="tab-content" style="display:none">
-        <div class="small muted">Annotations for this show</div>
+        <div class="small muted" style="margin-bottom:10px">Annotations for this show</div>
         <div class="list-container" id="annotations-list">
           <div class="no-data">Loading annotations...</div>
         </div>
       </div>
 
-      <button id="btn-back-to-journal" class="secondary" style="margin-top:12px;width:100%">← Back to Journal</button>
+      <button id="btn-back-to-journal" class="secondary" style="margin-top:14px;width:100%">← Back to Journal</button>
     </div>
 
     <!-- Journal List View -->
     <div class="card" id="journal-list-card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div class="title">Your Shows</div>
-        <button id="btn-view-all" class="secondary" style="padding:4px 8px;font-size:11px">View All</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div style="font-size:16px;font-weight:700">Your Shows</div>
+        <button id="btn-view-all" class="secondary" style="padding:6px 10px;font-size:11px">📚 View All</button>
       </div>
       <div class="list-container" id="shows-list">
         <div class="no-data">No shows yet. Add one above!</div>
       </div>
     </div>
 
-    <!-- Playback Controls (optional) -->
+    <!-- Playback Controls -->
     <div class="card">
-      <div class="small muted">Playback</div>
-      <div class="playback-controls" style="margin-top:8px">
-        <button id="btn-play" class="secondary">▶ Play</button>
+      <div class="small muted" style="margin-bottom:10px">Playback controls</div>
+      <div class="playback-controls">
+        <button id="btn-play">▶ Play</button>
         <button id="btn-pause" class="secondary">⏸ Pause</button>
       </div>
     </div>
   </div>
 
   <div class="footer">
-    <div style="margin-bottom:8px">KTP • Movie Journal — Enjoy annotating your shows!</div>
+    Movie Journal — Track and annotate your favorite shows
   </div>
 
   <script type="module" src="popup.js"></script>
