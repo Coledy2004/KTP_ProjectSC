@@ -8,6 +8,22 @@ const STORAGE_KEY = 'ktp_shows_journal';
 const FRIENDS_NICKNAMES_KEY = 'ktp_friend_nicknames';
 
 /**
+ * Initialize device ID if it doesn't exist
+ * @returns {Promise<string>} The device ID
+ */
+export async function ensureDeviceId() {
+  const stored = await chrome.storage.local.get('ktp_device_id');
+  if (stored.ktp_device_id) {
+    return stored.ktp_device_id;
+  }
+  
+  // Generate new device ID
+  const newDeviceId = 'device_' + Math.random().toString(36).substring(2, 15) + '_' + Date.now();
+  await chrome.storage.local.set({ ktp_device_id: newDeviceId });
+  return newDeviceId;
+}
+
+/**
  * Get or create a show entry
  * @param {string} showTitle - Title of the show/movie
  * @returns {Promise<Object>} Show object with id, title, review, annotations[], addedDate, lastModified
@@ -70,8 +86,8 @@ export async function getJournal() {
 async function migrateAnnotations(journal) {
   if (!Array.isArray(journal)) return null;
   
-  const stored = await chrome.storage.local.get('ktp_device_id');
-  const currentDeviceId = stored.ktp_device_id || 'unknown';
+  // Ensure we have a device ID first
+  const currentDeviceId = await ensureDeviceId();
   let needsSave = false;
   
   journal.forEach(show => {
@@ -475,6 +491,7 @@ export function formatDate(timestamp) {
 }
 
 export default {
+  ensureDeviceId,
   getOrCreateShow,
   getJournal,
   updateShowReview,

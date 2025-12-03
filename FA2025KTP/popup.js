@@ -482,6 +482,11 @@ async function loadFriends() {
 function initializePopup() {
   console.log('[popup] initializing journal popup...');
   
+  // Ensure device ID exists (creates one if missing)
+  Journal.ensureDeviceId().then(deviceId => {
+    console.log('[popup] device ID ready:', deviceId);
+  });
+  
   // Initial load - delay slightly to let popup fully render
   setTimeout(() => {
     updateNowWatching();
