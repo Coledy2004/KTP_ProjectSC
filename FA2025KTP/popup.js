@@ -265,12 +265,24 @@ async function loadShowsList() {
       
       const reviewPreview = show.review ? show.review.substring(0, 50) + '...' : '(no review)';
       const annCount = (show.annotations || []).length;
-      
+      const rating = show.rating || 0;
+
+      // Build a compact rating display (stars + numeric)
+      let ratingDisplay = '';
+      if (rating > 0) {
+        const filled = '★'.repeat(Math.max(0, Math.min(5, rating)));
+        const empty = '☆'.repeat(5 - Math.max(0, Math.min(5, rating)));
+        ratingDisplay = `<div style="margin-top:6px;font-size:13px;color:var(--accent)">${filled}${empty} <span class=\"muted small\" style=\"margin-left:6px;color:var(--muted)\">${rating}/5</span></div>`;
+      } else {
+        ratingDisplay = `<div class=\"muted small\" style=\"margin-top:6px\">No rating</div>`;
+      }
+
       el.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div style="flex:1">
             <strong>${show.title}</strong>
             <div class="muted small" style="margin-top:4px">${reviewPreview}</div>
+            ${ratingDisplay}
             <div class="muted small" style="margin-top:4px">📝 ${annCount} annotation${annCount !== 1 ? 's' : ''}</div>
           </div>
           <div style="margin-left:8px;display:flex;flex-direction:column;align-items:flex-end">
